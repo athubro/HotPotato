@@ -57,6 +57,10 @@
     border: 2px solid #ffd700;
     font-weight: bold;
   }
+  .player.out {
+    opacity: 0.5;
+    text-decoration: line-through;
+  }
   #lyricDisplay {
     font-size: 24px;
     font-weight: bold;
@@ -511,11 +515,11 @@ function listenForGameUpdates() {
 function renderPlayers(players, hostId) {
   playerListEl.innerHTML = "";
   players.forEach(p => {
-    if (!p.alive) return; // Skip rendering players who are not alive
     const div = document.createElement("div");
     div.className = "player";
     if (p.id === hostId) div.classList.add("host");
-    div.textContent = p.name;
+    if (!p.alive) div.classList.add("out");
+    div.textContent = p.name + (p.alive ? "" : " (out)");
 
     if (p.id === playerId && joined) {
       const leaveBtn = document.createElement("button");
