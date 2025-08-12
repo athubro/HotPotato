@@ -7,35 +7,96 @@
 <style>
   body {
     font-family: Arial, sans-serif;
-    background:#ffe6f0;
-    margin:0; padding:20px;
-    display:flex; flex-direction:column; align-items:center;
+    background: linear-gradient(to bottom, #ff4500, #8b0000);
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #fff;
   }
-  h1 { color:#ff4da6; }
+  h1 {
+    color: #ffd700;
+    text-shadow: 2px 2px #8b0000;
+  }
   button {
-    background:#ff80bf; border:none; padding:10px 15px;
-    margin:5px; cursor:pointer; color:#fff; border-radius:8px; font-size:14px;
+    background: #ff4500;
+    border: none;
+    padding: 10px 15px;
+    margin: 5px;
+    cursor: pointer;
+    color: #fff;
+    border-radius: 8px;
+    font-size: 14px;
   }
-  button:hover { background:#ff4da6; }
-  button:disabled { background:#ccc; cursor:not-allowed; }
-  #gameArea, #startGame, #leaveGame { display:none; }
-  #playerList { margin:10px 0; width: 200px; }
+  button:hover {
+    background: #cc0000;
+  }
+  button:disabled {
+    background: #555;
+    cursor: not-allowed;
+  }
+  #gameArea, #startGame, #leaveGame {
+    display: none;
+  }
+  #playerList {
+    margin: 10px 0;
+    width: 200px;
+  }
   .player {
-    padding:8px 12px; background:#fff0f5; border:1px solid #ffb3d9;
-    border-radius:6px; margin:3px; display:flex; justify-content:space-between;
+    padding: 8px 12px;
+    background: #ff6347;
+    border: 1px solid #ffd700;
+    border-radius: 6px;
+    margin: 3px;
+    display: flex;
+    justify-content: space-between;
+    color: #fff;
   }
-  .player.host { border:2px solid gold; font-weight:bold; }
-  .player.out { opacity:0.5; text-decoration:line-through; }
-  #lyricDisplay { font-size:24px; font-weight:bold; margin:20px 0; }
-  #potatoStatus { margin-bottom:10px; }
-  #clicksDisplay { font-weight:bold; margin-bottom:10px; }
-  #potatoTimerDisplay { margin-top:5px; font-size:14px; color:#cc3366; }
-  #statusBar { margin-top:15px; color:#990033; min-height:18px; }
-  #playerDiagram { position: relative; width: 400px; height: 400px; margin: 20px auto; }
+  .player.host {
+    border: 2px solid #ffd700;
+    font-weight: bold;
+  }
+  #lyricDisplay {
+    font-size: 24px;
+    font-weight: bold;
+    margin: 20px 0;
+    color: #ffd700;
+  }
+  #potatoStatus {
+    margin-bottom: 10px;
+    color: #fff;
+  }
+  #clicksDisplay {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #fff;
+  }
+  #potatoTimerDisplay {
+    margin-top: 5px;
+    font-size: 14px;
+    color: #ffd700;
+  }
+  #statusBar {
+    margin-top: 15px;
+    color: #ffd700;
+    min-height: 18px;
+  }
+  #playerDiagram {
+    position: relative;
+    width: 400px;
+    height: 400px;
+    margin: 20px auto;
+  }
+  #hotPotatoImage {
+    max-width: 200px;
+    margin-bottom: 20px;
+  }
 </style>
 </head>
 <body>
 
+<img id="hotPotatoImage" src="https://png.pngtree.com/png-vector/20220917/ourmid/pngtree-hot-potato-saying-cartoon-dangerous-proverb-drawing-vector-png-image_14545442.png" alt="Hot Potato" />
 <h1>Hot Potato Game</h1>
 <p id="currentRoom">Current Room: <span id="roomDisplay"></span></p>
 
@@ -450,11 +511,11 @@ function listenForGameUpdates() {
 function renderPlayers(players, hostId) {
   playerListEl.innerHTML = "";
   players.forEach(p => {
+    if (!p.alive) return; // Skip rendering players who are not alive
     const div = document.createElement("div");
     div.className = "player";
     if (p.id === hostId) div.classList.add("host");
-    if (!p.alive) div.classList.add("out");
-    div.textContent = p.name + (p.alive ? "" : " (out)");
+    div.textContent = p.name;
 
     if (p.id === playerId && joined) {
       const leaveBtn = document.createElement("button");
@@ -492,6 +553,7 @@ function renderDiagram(players, holder) {
     const nameSpan = document.createElement("div");
     nameSpan.textContent = p.name;
     nameSpan.style.fontSize = "12px";
+    nameSpan.style.color = "#ffd700";
     icon.appendChild(nameSpan);
 
     const avatar = document.createElement("div");
