@@ -1,1 +1,22 @@
-
+:root{
+  --bg:#fff7fb;
+  --accent:#ff6fa3;
+  --muted:#555;
+}
+*{box-sizing:border-box;font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;padding:0}
+body{background:var(--bg);color:#222;min-height:100vh;display:flex;align-items:center;justify-content:center}
+#app{width:900px;max-width:95%;background:#fff;padding:18px;border-radius:12px;box-shadow:0 6px 30px rgba(0,0,0,0.08)}
+header{display:flex;justify-content:flex-end;gap:8px;align-items:center}
+.username{font-weight:700}
+.screen{padding:18px}
+.hidden{display:none}
+h1{font-size:36px;color:var(--accent);margin-bottom:12px}
+button{background:var(--accent);color:white;padding:10px 14px;border-radius:10px;border:0;cursor:pointer}
+#playersList{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.playerCircle{width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+#gameArea{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}
+#lyricsBar{font-size:22px;text-align:center;padding:10px;background:#fff2f7;border-radius:8px;margin-bottom:12px}
+.status{margin-top:8px;color:var(--muted)}
+#controls{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+#statusBar{margin-top:12px;color:var(--muted)}
+input{padding:8px;border-radius:8px;border:1px solid #ddd;margin-right:8px}
