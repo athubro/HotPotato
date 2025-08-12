@@ -364,6 +364,9 @@ function renderPlayers(players, hostId) {
 
     playerListEl.appendChild(div);
   });
+
+  // Ensure start button visibility is updated after rendering players
+  setStartButton(isHost && players.filter(p => p.alive).length >= 2);
 }
 
 async function leaveGame() {
@@ -403,12 +406,11 @@ async function leaveGame() {
 
 window.addEventListener('beforeunload', async () => {
   // Don't auto-remove player on reload — keep them in the game
-  // (Remove player only if Leave button clicked)
 });
 
 function setStartButton(enabled) {
   startBtn.disabled = !enabled;
-  startBtn.style.display = enabled ? "inline-block" : "none";
+  startBtn.style.display = isHost && enabled ? "inline-block" : "none";
 }
 
 </script>
