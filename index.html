@@ -24,8 +24,12 @@
     border-radius: 8px;
     font-size: 14px;
   }
-  button:hover {
+  button:hover:not(:disabled) {
     background-color: #ff4da6;
+  }
+  button:disabled {
+    background-color: #ffcce0;
+    cursor: not-allowed;
   }
   #gameArea, #lobbyArea {
     margin-top: 20px;
@@ -72,7 +76,7 @@
 <h1>Hot Potato Game</h1>
 
 <div id="lobbyArea">
-  <input type="text" id="username" placeholder="Enter your name" />
+  <input type="text" id="username" placeholder="Enter your name" autocomplete="off" />
   <button id="joinGame">Join Game</button>
   <div id="playerList"></div>
   <button id="startGame" style="display:none;">Start Game</button>
@@ -91,7 +95,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
 import {
   getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot,
-  arrayUnion, runTransaction, Timestamp
+  arrayUnion, runTransaction
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -113,7 +117,6 @@ const gameRef = doc(db, "games", gameId);
 const lyrics = ["hot", "potato", "hot", "potato", "hot", "potato", "hot", "potato", "if", "you", "have", "the", "Potato", "you", "are", "out!"];
 const clicksNeededToPass = 5;
 const maxHoldTime = 5; // seconds before forced pass
-const offlineTimeout = 10 * 1000; // 10 seconds
 
 // DOM elements
 const usernameInput = document.getElementById("username");
@@ -136,45 +139,83 @@ let localClicks = 0;
 let potatoHolder = null;
 let holdInterval = null;
 let holdSecondsLeft = maxHoldTime;
+let lyricInterval = null;
+let holdTimerInterval = null;
+let joined = false;
+
+// Disable join button to prevent spam
+function setJoinButtonDisabled(disabled) {
+  joinBtn.disabled = disabled;
+  usernameInput.disabled = disabled;
+}
+
+// When user closes or reloads tab, remove player from game
+window.addEventListener("beforeunload", async () => {
+  if (!playerId) return;
+  try {
+    const snap = await getDoc(gameRef);
+    if (!snap.exists()) return;
+    const game = snap.data();
+    if (!game.players) return;
+    const updatedPlayers = game.players.filter(p => p.id !== playerId);
+    await updateDoc(gameRef, { players: updatedPlayers });
+  } catch (e) {
+    // ignore errors on unload
+  }
+});
 
 joinBtn.onclick = async () => {
+  if (joined) return; // already joined, prevent spam
+
   playerName = usernameInput.value.trim();
   if (!playerName) {
     alert("Please enter your name!");
     return;
   }
-  playerId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-  const snap = await getDoc(gameRef);
-  if (!snap.exists()) {
-    await setDoc(gameRef, {
-      players: [],
-      state: "lobby",
-      host: playerId,
-      potatoHolder: null,
-      lyricIndex: 0
-    });
+  setJoinButtonDisabled(true);
+
+  try {
+    playerId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    const snap = await getDoc(gameRef);
+    let game = snap.exists() ? snap.data() : null;
+
+    if (!game) {
+      // Create new game and assign host as first player
+      await setDoc(gameRef, {
+        players: [{ id: playerId, name: playerName, alive: true, clicks: 0 }],
+        state: "lobby",
+        host: playerId,
+        potatoHolder: null,
+        lyricIndex: 0
+      });
+    } else {
+      let playersArray = Array.isArray(game.players) ? game.players : [];
+      // If no host, assign first player as host
+      let hostId = game.host;
+      if (!hostId) {
+        hostId = playerId;
+      }
+      // Add player if not in list
+      if (!playersArray.some(p => p.id === playerId)) {
+        playersArray.push({ id: playerId, name: playerName, alive: true, clicks: 0 });
+      }
+      await updateDoc(gameRef, {
+        players: playersArray,
+        host: hostId
+      });
+    }
+
+    joined = true;
+    statusDiv.textContent = "Joined lobby. Waiting for host to start the game.";
+    listenForGameUpdates();
+  } catch (e) {
+    alert("Error joining game, try again.");
+    console.error(e);
   }
 
-  const game = (await getDoc(gameRef)).data();
-  const playersArray = Array.isArray(game.players) ? game.players : [];
-
-  // If player is not already in list, add them
-  if (!playersArray.some(p => p.id === playerId)) {
-    await updateDoc(gameRef, {
-      players: arrayUnion({ id: playerId, name: playerName, alive: true, clicks: 0, lastActive: Date.now() })
-    });
-  } else {
-    // Update lastActive timestamp if already present
-    const updatedPlayers = playersArray.map(p => {
-      if (p.id === playerId) return { ...p, lastActive: Date.now() };
-      else return p;
-    });
-    await updateDoc(gameRef, { players: updatedPlayers });
-  }
-
-  listenForGameUpdates();
-  statusDiv.textContent = "Joined lobby. Waiting for host to start the game.";
+  setJoinButtonDisabled(false);
 };
 
 startBtn.onclick = async () => {
@@ -196,6 +237,7 @@ startBtn.onclick = async () => {
     potatoHolder: randomHolder,
     lyricIndex: 0
   });
+
   lyricIndex = 0;
   localClicks = 0;
   holdSecondsLeft = maxHoldTime;
@@ -213,7 +255,6 @@ passBtn.onclick = async () => {
   }
 };
 
-// Pass potato to random alive player other than current holder
 async function passPotato() {
   localClicks = 0;
   clicksDisplay.textContent = `Clicks: 0`;
@@ -225,16 +266,13 @@ async function passPotato() {
     if (!snap.exists()) throw "Game doc missing";
     const game = snap.data();
     const alivePlayers = game.players.filter(p => p.alive && p.id !== potatoHolder);
-    if (alivePlayers.length === 0) {
-      // No other players alive: do nothing
-      return;
-    }
+    if (alivePlayers.length === 0) return; // no one else alive
     const nextHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
 
     // Reset clicks for all players
     const resetPlayers = game.players.map(p => {
       if (p.id === potatoHolder || p.id === nextHolder) {
-        return { ...p, clicks: 0, lastActive: Date.now() };
+        return { ...p, clicks: 0 };
       }
       return p;
     });
@@ -243,23 +281,12 @@ async function passPotato() {
   });
 }
 
-// Listen to game updates from Firestore
 function listenForGameUpdates() {
   onSnapshot(gameRef, async (snap) => {
     if (!snap.exists()) return;
     const game = snap.data();
 
-    // Remove offline players if lastActive too old
-    const now = Date.now();
-    const activePlayers = game.players.filter(p => now - p.lastActive < offlineTimeout);
-    if (activePlayers.length !== game.players.length) {
-      await updateDoc(gameRef, { players: activePlayers });
-      if (!activePlayers.some(p => p.id === playerId)) {
-        alert("You were kicked for inactivity.");
-        location.reload();
-        return;
-      }
-    }
+    if (!game.players) return;
 
     renderPlayers(game.players, game.host);
 
@@ -270,7 +297,6 @@ function listenForGameUpdates() {
       potatoHolder = game.potatoHolder;
       lyricIndex = game.lyricIndex ?? 0;
 
-      // Show potato holder info
       if (potatoHolder === playerId) {
         potatoStatus.textContent = "You have the potato!";
       } else {
@@ -278,23 +304,19 @@ function listenForGameUpdates() {
         potatoStatus.textContent = `${holderName} has the potato`;
       }
 
-      // Show clicks for local player
       const localPlayer = game.players.find(p => p.id === playerId);
       localClicks = localPlayer?.clicks ?? 0;
       clicksDisplay.textContent = `Clicks: ${localClicks}`;
 
-      // Show lyric
       lyricDisplay.textContent = lyrics[lyricIndex];
 
-      // Manage lyric flow and forced pass only by host
       if (game.host === playerId) {
         startLyricFlow(game);
       }
-
     } else {
-      // Not playing: show lobby and hide game
       lobbyArea.style.display = "block";
       gameArea.style.display = "none";
+
       potatoHolder = null;
       lyricIndex = 0;
       localClicks = 0;
@@ -307,10 +329,10 @@ function listenForGameUpdates() {
 
 let lyricInterval = null;
 let holdTimerInterval = null;
-let lyricTickMs = 900;
+const lyricTickMs = 900;
 
 function startLyricFlow(game) {
-  if (lyricInterval) return; // already running
+  if (lyricInterval) return;
 
   lyricInterval = setInterval(async () => {
     lyricIndex++;
@@ -319,7 +341,7 @@ function startLyricFlow(game) {
       clearInterval(lyricInterval);
       lyricInterval = null;
 
-      // Round end: eliminate player holding potato
+      // End round - eliminate holder
       const snap = await getDoc(gameRef);
       const currentGame = snap.data();
       const currentHolder = currentGame.potatoHolder;
@@ -333,13 +355,11 @@ function startLyricFlow(game) {
         await updateDoc(gameRef, { players: updatedPlayers });
       }
 
-      // Check if game over or next round
       await startNextRoundOrEnd(currentGame);
       return;
     }
 
     await updateDoc(gameRef, { lyricIndex });
-
   }, lyricTickMs);
 
   startHoldTimer(game);
@@ -356,7 +376,6 @@ function startHoldTimer(game) {
     holdTimer.textContent = `Time left to hold potato: ${holdSecondsLeft}s`;
 
     if (holdSecondsLeft <= 0) {
-      // Force potato pass
       clearInterval(holdTimerInterval);
       holdTimerInterval = null;
 
@@ -371,12 +390,11 @@ async function startNextRoundOrEnd(game) {
   const alivePlayers = game.players.filter(p => p.alive);
 
   if (alivePlayers.length <= 1) {
-    // Winner or no players
     const winnerName = alivePlayers.length === 1 ? alivePlayers[0].name : "No one";
     alert(`Game over! Winner: ${winnerName}`);
 
-    // Reset game state but keep players alive for new game
-    const resetPlayers = game.players.map(p => ({ ...p, alive: true, clicks: 0, lastActive: Date.now() }));
+    // Reset players alive for new game
+    const resetPlayers = game.players.map(p => ({ ...p, alive: true, clicks: 0 }));
 
     await updateDoc(gameRef, {
       state: "lobby",
@@ -395,12 +413,10 @@ async function startNextRoundOrEnd(game) {
     clicksDisplay.textContent = "Clicks: 0";
 
   } else {
-    // Start new round: reset lyrics, pick new holder
     const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-
     const resetPlayers = game.players.map(p => {
       if (alivePlayers.some(ap => ap.id === p.id)) {
-        return { ...p, clicks: 0, lastActive: Date.now() };
+        return { ...p, clicks: 0 };
       }
       return p;
     });
