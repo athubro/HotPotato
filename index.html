@@ -17,6 +17,7 @@
     margin:5px; cursor:pointer; color:#fff; border-radius:8px; font-size:14px;
   }
   button:hover { background:#ff4da6; }
+  button:disabled { background:#ccc; cursor:not-allowed; }
   #gameArea, #startGame, #leaveGame { display:none; }
   #playerList { margin:10px 0; width: 200px; }
   .player {
@@ -395,6 +396,8 @@ function renderPlayers(players, hostId) {
 
     playerListEl.appendChild(div);
   });
+  // Ensure start button visibility is updated after rendering players
+  setStartButton(isHost && players.filter(p => p.alive).length >= 2);
 }
 
 async function leaveGame() {
@@ -441,7 +444,7 @@ window.addEventListener('beforeunload', async () => {
 
 function setStartButton(enabled) {
   startBtn.disabled = !enabled;
-  startBtn.style.display = isHost && enabled ? "inline-block" : "none";
+  startBtn.style.display = isHost ? "inline-block" : "none";
 }
 
 </script>
