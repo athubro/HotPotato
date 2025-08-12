@@ -8,11 +8,8 @@
   body {
     font-family: Arial, sans-serif;
     background-color: #ffe6f0;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    margin: 0; padding: 0;
+    display: flex; flex-direction: column; align-items: center;
   }
   h1 {
     color: #ff4da6;
@@ -30,26 +27,43 @@
   button:hover {
     background-color: #ff4da6;
   }
-  #gameArea {
-    display: none;
+  #gameArea, #lobbyArea {
     margin-top: 20px;
+    width: 300px;
+    text-align: center;
   }
-  #lobbyArea {
-    margin-top: 20px;
-  }
-  .player {
+  #playerList div {
     padding: 8px 12px;
     background-color: #fff0f5;
     border: 1px solid #ffb3d9;
     border-radius: 6px;
-    margin: 5px;
+    margin: 5px 0;
   }
-  .player.host {
+  #playerList div.host {
     border: 2px solid gold;
   }
-  .player.out {
-    color: #bbb;
+  #playerList div.out {
+    background-color: #f0f0f0;
+    color: #999;
     text-decoration: line-through;
+  }
+  #lyricDisplay {
+    font-size: 24px;
+    font-weight: bold;
+    margin: 20px 0;
+  }
+  #potatoStatus {
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+  #clicksDisplay {
+    margin: 10px 0;
+    font-size: 18px;
+  }
+  #holdTimer {
+    font-size: 18px;
+    color: #ff4d4d;
+    margin: 10px 0;
   }
 </style>
 </head>
@@ -62,381 +76,363 @@
   <button id="joinGame">Join Game</button>
   <div id="playerList"></div>
   <button id="startGame" style="display:none;">Start Game</button>
+  <div id="status"></div>
 </div>
 
-<div id="gameArea">
-  <h2 id="potatoStatus">Waiting...</h2>
-  <button id="passPotato">Click to Pass Potato</button>
-  <p>Clicks: <span id="clickCount">0</span></p>
-  <p>Pass Timer: <span id="passTimer">5</span> seconds</p>
-  <div id="lyricDisplay" style="font-size: 24px; margin-top: 10px; font-weight: bold;"></div>
+<div id="gameArea" style="display:none;">
+  <div id="potatoStatus">Waiting for game to start...</div>
+  <button id="passPotato">Pass Potato (Click 5 times)</button>
+  <div id="clicksDisplay">Clicks: 0</div>
+  <div id="holdTimer">Time left to hold potato: 5s</div>
+  <div id="lyricDisplay"></div>
 </div>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-  import {
-    getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, runTransaction
-  } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+import {
+  getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot,
+  arrayUnion, runTransaction, Timestamp
+} from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyB2_jo_IniRf7IYXmdziTN4yezDxjZxTD0",
-    authDomain: "hotpotatoe-12db7.firebaseapp.com",
-    projectId: "hotpotatoe-12db7",
-    storageBucket: "hotpotatoe-12db7.firebasestorage.app",
-    messagingSenderId: "495938423140",
-    appId: "1:495938423140:web:ee57563ed78bbe5f41d271",
-    measurementId: "G-TRN809H4JK"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyB2_jo_IniRf7IYXmdziTN4yezDxjZxTD0",
+  authDomain: "hotpotatoe-12db7.firebaseapp.com",
+  projectId: "hotpotatoe-12db7",
+  storageBucket: "hotpotatoe-12db7.firebasestorage.app",
+  messagingSenderId: "495938423140",
+  appId: "1:495938423140:web:ee57563ed78bbe5f41d271",
+  measurementId: "G-TRN809H4JK"
+};
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
-  // ===== GAME VARIABLES =====
-  let playerId = null;
-  let playerName = "";
-  const gameId = "main-room";
-  let potatoHolder = null;
-  const lyrics = ["hot", "potato", "hot", "potato", "hot", "potato", "hot", "potato", "if", "you", "have", "the", "Potato", "you", "are", "out!"];
-  let lyricIndex = 0;
+const gameId = "main-room";
+const gameRef = doc(db, "games", gameId);
 
-  // ===== UI ELEMENTS =====
-  const usernameInput = document.getElementById("username");
-  const joinBtn = document.getElementById("joinGame");
-  const startBtn = document.getElementById("startGame");
-  const playerListEl = document.getElementById("playerList");
-  const gameArea = document.getElementById("gameArea");
-  const potatoStatus = document.getElementById("potatoStatus");
-  const passBtn = document.getElementById("passPotato");
-  const lyricDisplay = document.getElementById("lyricDisplay");
-  const clickCountEl = document.getElementById("clickCount");
-  const passTimerEl = document.getElementById("passTimer");
+const lyrics = ["hot", "potato", "hot", "potato", "hot", "potato", "hot", "potato", "if", "you", "have", "the", "Potato", "you", "are", "out!"];
+const clicksNeededToPass = 5;
+const maxHoldTime = 5; // seconds before forced pass
+const offlineTimeout = 10 * 1000; // 10 seconds
 
-  // ===== TIMER & CLICK TRACKING =====
-  let localClicks = 0;
-  let lyricInterval = null;
-  let passTimer = 5;
-  let passTimerInterval = null;
+// DOM elements
+const usernameInput = document.getElementById("username");
+const joinBtn = document.getElementById("joinGame");
+const startBtn = document.getElementById("startGame");
+const playerListEl = document.getElementById("playerList");
+const lobbyArea = document.getElementById("lobbyArea");
+const gameArea = document.getElementById("gameArea");
+const potatoStatus = document.getElementById("potatoStatus");
+const passBtn = document.getElementById("passPotato");
+const lyricDisplay = document.getElementById("lyricDisplay");
+const clicksDisplay = document.getElementById("clicksDisplay");
+const holdTimer = document.getElementById("holdTimer");
+const statusDiv = document.getElementById("status");
 
-  // ===== JOIN GAME =====
-  joinBtn.addEventListener("click", async () => {
-    playerName = usernameInput.value.trim();
-    if (!playerName) return alert("Enter your name!");
+let playerId = null;
+let playerName = "";
+let lyricIndex = 0;
+let localClicks = 0;
+let potatoHolder = null;
+let holdInterval = null;
+let holdSecondsLeft = maxHoldTime;
 
-    playerId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const gameRef = doc(db, "games", gameId);
-    const snap = await getDoc(gameRef);
+joinBtn.onclick = async () => {
+  playerName = usernameInput.value.trim();
+  if (!playerName) {
+    alert("Please enter your name!");
+    return;
+  }
+  playerId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-    if (!snap.exists()) {
-      await setDoc(gameRef, {
-        players: [],
-        state: "lobby",
-        host: playerId,
-        potatoHolder: null,
-        lyricIndex: 0
-      });
-    }
+  const snap = await getDoc(gameRef);
+  if (!snap.exists()) {
+    await setDoc(gameRef, {
+      players: [],
+      state: "lobby",
+      host: playerId,
+      potatoHolder: null,
+      lyricIndex: 0
+    });
+  }
 
-    // Add player if not already in list (avoid duplicates)
-    const game = (await getDoc(gameRef)).data();
-    if (!game.players.some(p => p.id === playerId)) {
-      await updateDoc(gameRef, {
-        players: arrayUnion({ id: playerId, name: playerName, alive: true, clicks: 0, lastActive: Date.now() })
-      });
-    } else {
-      // Update lastActive if player re-joins
-      const updatedPlayers = game.players.map(p => {
-        if (p.id === playerId) {
-          return { ...p, lastActive: Date.now() };
-        }
-        return p;
-      });
-      await updateDoc(gameRef, { players: updatedPlayers });
-    }
+  const game = (await getDoc(gameRef)).data();
+  const playersArray = Array.isArray(game.players) ? game.players : [];
 
-    listenForGameUpdates();
+  // If player is not already in list, add them
+  if (!playersArray.some(p => p.id === playerId)) {
+    await updateDoc(gameRef, {
+      players: arrayUnion({ id: playerId, name: playerName, alive: true, clicks: 0, lastActive: Date.now() })
+    });
+  } else {
+    // Update lastActive timestamp if already present
+    const updatedPlayers = playersArray.map(p => {
+      if (p.id === playerId) return { ...p, lastActive: Date.now() };
+      else return p;
+    });
+    await updateDoc(gameRef, { players: updatedPlayers });
+  }
+
+  listenForGameUpdates();
+  statusDiv.textContent = "Joined lobby. Waiting for host to start the game.";
+};
+
+startBtn.onclick = async () => {
+  const snap = await getDoc(gameRef);
+  const game = snap.data();
+  if (game.host !== playerId) {
+    alert("Only the host can start the game!");
+    return;
+  }
+  const alivePlayers = game.players.filter(p => p.alive);
+  if (alivePlayers.length < 2) {
+    alert("Need at least 2 players to start!");
+    return;
+  }
+  const randomHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+
+  await updateDoc(gameRef, {
+    state: "playing",
+    potatoHolder: randomHolder,
+    lyricIndex: 0
   });
+  lyricIndex = 0;
+  localClicks = 0;
+  holdSecondsLeft = maxHoldTime;
+  holdTimer.textContent = `Time left to hold potato: ${holdSecondsLeft}s`;
+};
 
-  // ===== LISTEN FOR GAME UPDATES =====
-  function listenForGameUpdates() {
-    const gameRef = doc(db, "games", gameId);
-    onSnapshot(gameRef, (snap) => {
-      if (!snap.exists()) return;
-      const game = snap.data();
+passBtn.onclick = async () => {
+  if (potatoHolder !== playerId) return;
 
-      renderPlayers(game.players, game.host);
+  localClicks++;
+  clicksDisplay.textContent = `Clicks: ${localClicks}`;
 
-      if (game.state === "playing") {
-        document.getElementById("lobbyArea").style.display = "none";
-        gameArea.style.display = "block";
-
-        potatoHolder = game.potatoHolder;
-        lyricIndex = game.lyricIndex ?? 0;
-
-        lyricDisplay.textContent = lyrics[lyricIndex] || "";
-
-        // Update clicks if this player has the potato
-        if (potatoHolder === playerId) {
-          const playerData = game.players.find(p => p.id === playerId);
-          localClicks = playerData?.clicks || 0;
-          clickCountEl.textContent = localClicks;
-          startPassTimer();
-        } else {
-          localClicks = 0;
-          clickCountEl.textContent = 0;
-          stopPassTimer();
-        }
-
-        potatoStatus.textContent =
-          potatoHolder === playerId
-            ? "You have the potato!"
-            : `${game.players.find((p) => p.id === potatoHolder)?.name || "Unknown"} has the potato`;
-      } else {
-        // Show lobby UI if not playing
-        document.getElementById("lobbyArea").style.display = "block";
-        gameArea.style.display = "none";
-        stopLyricsFlow();
-        stopPassTimer();
-      }
-    });
+  if (localClicks >= clicksNeededToPass) {
+    await passPotato();
   }
+};
 
-  // ===== RENDER PLAYERS IN LOBBY =====
-  function renderPlayers(players, hostId) {
-    playerListEl.innerHTML = "";
-    players.forEach((p) => {
-      const div = document.createElement("div");
-      div.className = "player";
-      if (p.id === hostId) div.classList.add("host");
-      if (!p.alive) div.classList.add("out");
-      div.textContent = p.name + (p.alive ? "" : " (out)");
-      playerListEl.appendChild(div);
-    });
-    if (hostId === playerId) {
-      startBtn.style.display = "inline-block";
-    } else {
-      startBtn.style.display = "none";
-    }
-  }
+// Pass potato to random alive player other than current holder
+async function passPotato() {
+  localClicks = 0;
+  clicksDisplay.textContent = `Clicks: 0`;
+  holdSecondsLeft = maxHoldTime;
+  holdTimer.textContent = `Time left to hold potato: ${holdSecondsLeft}s`;
 
-  // ===== REMOVE OFFLINE PLAYERS =====
-  async function removeOfflinePlayers(players) {
-    // Define "offline" as not updated lastActive in last 20 seconds
-    const now = Date.now();
-    const offlineThreshold = 20 * 1000;
-
-    const offlinePlayers = players.filter(p => (now - (p.lastActive || 0)) > offlineThreshold && p.alive);
-
-    if (offlinePlayers.length === 0) return;
-
-    const gameRef = doc(db, "games", gameId);
-
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(gameRef);
-      const game = snap.data();
-
-      // Mark offline players as out
-      const updatedPlayers = game.players.map(p => {
-        if (offlinePlayers.some(op => op.id === p.id)) {
-          return {...p, alive: false, clicks: 0};
-        }
-        return p;
-      });
-
-      transaction.update(gameRef, { players: updatedPlayers });
-    });
-  }
-
-  // ===== START GAME =====
-  startBtn.addEventListener("click", async () => {
-    const gameRef = doc(db, "games", gameId);
-    const snap = await getDoc(gameRef);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(gameRef);
+    if (!snap.exists()) throw "Game doc missing";
     const game = snap.data();
-    if (game.host !== playerId) return;
+    const alivePlayers = game.players.filter(p => p.alive && p.id !== potatoHolder);
+    if (alivePlayers.length === 0) {
+      // No other players alive: do nothing
+      return;
+    }
+    const nextHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
 
-    // Remove offline players before starting
-    await removeOfflinePlayers(game.players);
+    // Reset clicks for all players
+    const resetPlayers = game.players.map(p => {
+      if (p.id === potatoHolder || p.id === nextHolder) {
+        return { ...p, clicks: 0, lastActive: Date.now() };
+      }
+      return p;
+    });
 
-    // Re-fetch after cleanup
-    const newSnap = await getDoc(gameRef);
-    const newGame = newSnap.data();
+    transaction.update(gameRef, { potatoHolder: nextHolder, players: resetPlayers });
+  });
+}
 
-    const alivePlayers = newGame.players.filter((p) => p.alive);
-    if (alivePlayers.length < 2) {
-      alert("Need at least 2 players alive to start.");
+// Listen to game updates from Firestore
+function listenForGameUpdates() {
+  onSnapshot(gameRef, async (snap) => {
+    if (!snap.exists()) return;
+    const game = snap.data();
+
+    // Remove offline players if lastActive too old
+    const now = Date.now();
+    const activePlayers = game.players.filter(p => now - p.lastActive < offlineTimeout);
+    if (activePlayers.length !== game.players.length) {
+      await updateDoc(gameRef, { players: activePlayers });
+      if (!activePlayers.some(p => p.id === playerId)) {
+        alert("You were kicked for inactivity.");
+        location.reload();
+        return;
+      }
+    }
+
+    renderPlayers(game.players, game.host);
+
+    if (game.state === "playing") {
+      lobbyArea.style.display = "none";
+      gameArea.style.display = "block";
+
+      potatoHolder = game.potatoHolder;
+      lyricIndex = game.lyricIndex ?? 0;
+
+      // Show potato holder info
+      if (potatoHolder === playerId) {
+        potatoStatus.textContent = "You have the potato!";
+      } else {
+        const holderName = game.players.find(p => p.id === potatoHolder)?.name ?? "Unknown";
+        potatoStatus.textContent = `${holderName} has the potato`;
+      }
+
+      // Show clicks for local player
+      const localPlayer = game.players.find(p => p.id === playerId);
+      localClicks = localPlayer?.clicks ?? 0;
+      clicksDisplay.textContent = `Clicks: ${localClicks}`;
+
+      // Show lyric
+      lyricDisplay.textContent = lyrics[lyricIndex];
+
+      // Manage lyric flow and forced pass only by host
+      if (game.host === playerId) {
+        startLyricFlow(game);
+      }
+
+    } else {
+      // Not playing: show lobby and hide game
+      lobbyArea.style.display = "block";
+      gameArea.style.display = "none";
+      potatoHolder = null;
+      lyricIndex = 0;
+      localClicks = 0;
+      clicksDisplay.textContent = "Clicks: 0";
+      holdTimer.textContent = "";
+      lyricDisplay.textContent = "";
+    }
+  });
+}
+
+let lyricInterval = null;
+let holdTimerInterval = null;
+let lyricTickMs = 900;
+
+function startLyricFlow(game) {
+  if (lyricInterval) return; // already running
+
+  lyricInterval = setInterval(async () => {
+    lyricIndex++;
+
+    if (lyricIndex >= lyrics.length) {
+      clearInterval(lyricInterval);
+      lyricInterval = null;
+
+      // Round end: eliminate player holding potato
+      const snap = await getDoc(gameRef);
+      const currentGame = snap.data();
+      const currentHolder = currentGame.potatoHolder;
+
+      if (currentHolder) {
+        const updatedPlayers = currentGame.players.map(p => {
+          if (p.id === currentHolder) return { ...p, alive: false };
+          return p;
+        });
+
+        await updateDoc(gameRef, { players: updatedPlayers });
+      }
+
+      // Check if game over or next round
+      await startNextRoundOrEnd(currentGame);
       return;
     }
 
-    const randomHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+    await updateDoc(gameRef, { lyricIndex });
+
+  }, lyricTickMs);
+
+  startHoldTimer(game);
+}
+
+function startHoldTimer(game) {
+  if (holdTimerInterval) return;
+
+  holdSecondsLeft = maxHoldTime;
+  holdTimer.textContent = `Time left to hold potato: ${holdSecondsLeft}s`;
+
+  holdTimerInterval = setInterval(async () => {
+    holdSecondsLeft--;
+    holdTimer.textContent = `Time left to hold potato: ${holdSecondsLeft}s`;
+
+    if (holdSecondsLeft <= 0) {
+      // Force potato pass
+      clearInterval(holdTimerInterval);
+      holdTimerInterval = null;
+
+      if (game.host === playerId) {
+        await passPotato();
+      }
+    }
+  }, 1000);
+}
+
+async function startNextRoundOrEnd(game) {
+  const alivePlayers = game.players.filter(p => p.alive);
+
+  if (alivePlayers.length <= 1) {
+    // Winner or no players
+    const winnerName = alivePlayers.length === 1 ? alivePlayers[0].name : "No one";
+    alert(`Game over! Winner: ${winnerName}`);
+
+    // Reset game state but keep players alive for new game
+    const resetPlayers = game.players.map(p => ({ ...p, alive: true, clicks: 0, lastActive: Date.now() }));
+
+    await updateDoc(gameRef, {
+      state: "lobby",
+      potatoHolder: null,
+      lyricIndex: 0,
+      players: resetPlayers
+    });
+
+    lobbyArea.style.display = "block";
+    gameArea.style.display = "none";
+
+    lyricIndex = 0;
+    localClicks = 0;
+    potatoHolder = null;
+    holdTimer.textContent = "";
+    clicksDisplay.textContent = "Clicks: 0";
+
+  } else {
+    // Start new round: reset lyrics, pick new holder
+    const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+
+    const resetPlayers = game.players.map(p => {
+      if (alivePlayers.some(ap => ap.id === p.id)) {
+        return { ...p, clicks: 0, lastActive: Date.now() };
+      }
+      return p;
+    });
 
     await updateDoc(gameRef, {
       state: "playing",
-      potatoHolder: randomHolder,
-      lyricIndex: 0
+      potatoHolder: newHolder,
+      lyricIndex: 0,
+      players: resetPlayers
     });
 
     lyricIndex = 0;
-    startLyricsFlow();
+    localClicks = 0;
+    holdSecondsLeft = maxHoldTime;
+    holdTimer.textContent = `Time left to hold potato: ${holdSecondsLeft}s`;
+  }
+}
+
+function renderPlayers(players, hostId) {
+  playerListEl.innerHTML = "";
+  if (!players) return;
+  players.forEach(p => {
+    const div = document.createElement("div");
+    div.textContent = p.name + (p.alive ? "" : " (out)");
+    div.className = "";
+    if (p.id === hostId) div.classList.add("host");
+    if (!p.alive) div.classList.add("out");
+    playerListEl.appendChild(div);
   });
 
-  // ===== PASS POTATO BUTTON CLICK =====
-  passBtn.addEventListener("click", async () => {
-    if (potatoHolder !== playerId) return;
-
-    localClicks++;
-    clickCountEl.textContent = localClicks;
-
-    const gameRef = doc(db, "games", gameId);
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(gameRef);
-      const game = snap.data();
-
-      // Update player's clicks count in players array
-      const updatedPlayers = game.players.map(p => {
-        if (p.id === playerId) {
-          return { ...p, clicks: localClicks, lastActive: Date.now() };
-        }
-        return p;
-      });
-
-      transaction.update(gameRef, { players: updatedPlayers });
-
-      if (localClicks >= 5) {
-        // Auto pass potato after 5 clicks
-        const alivePlayers = game.players.filter(p => p.alive && p.id !== playerId);
-        if (alivePlayers.length === 0) return;
-        const nextHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-
-        transaction.update(gameRef, { potatoHolder: nextHolder });
-
-        // Reset local clicks and update Firestore
-        localClicks = 0;
-        clickCountEl.textContent = localClicks;
-        const resetPlayers = updatedPlayers.map(p => p.id === playerId ? {...p, clicks: 0} : p);
-        transaction.update(gameRef, { players: resetPlayers });
-
-        resetPassTimer();
-      }
-    });
-  });
-
-  // ===== LYRICS FLOW =====
-  function startLyricsFlow() {
-    if (lyricInterval) return; // prevent multiple intervals
-
-    lyricInterval = setInterval(async () => {
-      lyricIndex++;
-      if (lyricIndex >= lyrics.length) {
-        clearInterval(lyricInterval);
-        lyricInterval = null;
-
-        // The player holding potato at the end is out:
-        const gameRef = doc(db, "games", gameId);
-        await runTransaction(db, async (transaction) => {
-          const snap = await transaction.get(gameRef);
-          const game = snap.data();
-
-          // Mark current potato holder as out
-          const updatedPlayers = game.players.map(p => 
-            p.id === game.potatoHolder ? {...p, alive: false, clicks: 0} : p
-          );
-
-          transaction.update(gameRef, {
-            players: updatedPlayers,
-            potatoHolder: null,
-            lyricIndex: 0
-          });
-        });
-
-        alert("Player holding the potato is out! Starting next round.");
-
-        // Restart game automatically if enough players left
-        const gameRef2 = doc(db, "games", gameId);
-        const snap2 = await getDoc(gameRef2);
-        const game2 = snap2.data();
-
-        const alivePlayers = game2.players.filter(p => p.alive);
-        if (alivePlayers.length >= 2) {
-          const randomHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-          await updateDoc(gameRef2, {
-            state: "playing",
-            potatoHolder: randomHolder,
-            lyricIndex: 0
-          });
-          lyricIndex = 0;
-          startLyricsFlow();
-        } else {
-          // Not enough players: go to lobby
-          await updateDoc(gameRef2, {
-            state: "lobby",
-            potatoHolder: null,
-            lyricIndex: 0
-          });
-          alert("Not enough players alive to continue. Back to lobby.");
-        }
-
-        return;
-      }
-
-      // Update lyric index in Firestore
-      const gameRef = doc(db, "games", gameId);
-      await updateDoc(gameRef, { lyricIndex });
-
-    }, 900);
-  }
-
-  function stopLyricsFlow() {
-    if (lyricInterval) {
-      clearInterval(lyricInterval);
-      lyricInterval = null;
-    }
-  }
-
-  // ===== PASS TIMER =====
-  function startPassTimer() {
-    passTimer = 5;
-    passTimerEl.textContent = passTimer;
-
-    if (passTimerInterval) clearInterval(passTimerInterval);
-
-    passTimerInterval = setInterval(async () => {
-      passTimer--;
-      passTimerEl.textContent = passTimer;
-
-      if (passTimer <= 0) {
-        clearInterval(passTimerInterval);
-        passTimerInterval = null;
-
-        if (potatoHolder === playerId) {
-          // Force pass potato if timer runs out
-          const gameRef = doc(db, "games", gameId);
-          await runTransaction(db, async (transaction) => {
-            const snap = await transaction.get(gameRef);
-            const game = snap.data();
-            const alivePlayers = game.players.filter(p => p.alive && p.id !== playerId);
-            if (alivePlayers.length === 0) return;
-            const nextHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-
-            transaction.update(gameRef, { potatoHolder: nextHolder });
-
-            // Reset clicks for this player
-            const updatedPlayers = game.players.map(p => p.id === playerId ? {...p, clicks: 0} : p);
-            transaction.update(gameRef, { players: updatedPlayers });
-
-            localClicks = 0;
-            clickCountEl.textContent = localClicks;
-          });
-        }
-      }
-    }, 1000);
-  }
-
-  function stopPassTimer() {
-    if (passTimerInterval) {
-      clearInterval(passTimerInterval);
-      passTimerInterval = null;
-      passTimerEl.textContent = "5";
-    }
-  }
+  startBtn.style.display = (hostId === playerId && players.filter(p => p.alive).length >= 2) ? "inline-block" : "none";
+}
 </script>
 </body>
 </html>
