@@ -31,6 +31,7 @@
   #clicksDisplay { font-weight:bold; margin-bottom:10px; }
   #potatoTimerDisplay { margin-top:5px; font-size:14px; color:#cc3366; }
   #statusBar { margin-top:15px; color:#990033; min-height:18px; }
+  #playerDiagram { position: relative; width: 400px; height: 400px; margin: 20px auto; }
 </style>
 </head>
 <body>
@@ -52,6 +53,7 @@
   <button id="passPotato">Click Potato</button>
   <div id="potatoTimerDisplay"></div>
   <div id="lyricDisplay"></div>
+  <div id="playerDiagram"></div>
 </div>
 
 <div id="statusBar"></div>
@@ -59,7 +61,8 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemove, runTransaction
+  getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemove, runTransaction,
+  collection, query, where, getDocs
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -81,6 +84,7 @@ const lyrics = [
 ];
 const clicksToPass = 5;
 const potatoMaxHoldSeconds = 5;
+const outIndex = lyrics.indexOf("out!");
 
 let gameId = localStorage.getItem('gameId') || null;
 let playerId = localStorage.getItem('playerId') || null;
@@ -94,6 +98,7 @@ let holdSecondsLeft = potatoMaxHoldSeconds;
 let isHost = false;
 let joined = false;
 let gameUnsub = null;
+let lyricTimer = null;
 
 const usernameInput = document.getElementById("username");
 const joinBtn = document.getElementById("joinGame");
@@ -166,12 +171,33 @@ joinBtn.addEventListener("click", async () => {
   let targetGameId = 'main-room';
   let gameRef = doc(db, "games", targetGameId);
   let snap = await getDoc(gameRef);
+
   if (snap.exists() && snap.data().state === "playing") {
-    setStatus("Main room in progress. Creating new lobby.");
-    targetGameId = `room-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    gameRef = doc(db, "games", targetGameId);
-    snap = await getDoc(gameRef);
+    setStatus("Main room in progress. Searching for an open lobby...");
+    const gamesRef = collection(db, "games");
+    const q = query(gamesRef, where("state", "==", "lobby"));
+    const querySnapshot = await getDocs(q);
+    let foundLobby = false;
+
+    for (const doc of querySnapshot.docs) {
+      if (doc.id !== 'main-room') {
+        targetGameId = doc.id;
+        gameRef = doc(db, "games", targetGameId);
+        snap = await getDoc(gameRef);
+        foundLobby = true;
+        setStatus(`Joining existing lobby: ${targetGameId}`);
+        break;
+      }
+    }
+
+    if (!foundLobby) {
+      setStatus("No open lobbies found. Creating new lobby.");
+      targetGameId = `room-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      gameRef = doc(db, "games", targetGameId);
+      snap = await getDoc(gameRef);
+    }
   }
+
   try {
     if (!snap.exists()) {
       await setDoc(gameRef, {
@@ -253,13 +279,13 @@ passBtn.addEventListener("click", async () => {
         return;
       }
       playerClicks++;
-      let updates = { lyricIndex: (game.lyricIndex + 1) % lyrics.length };
       if (playerClicks >= clicksToPass) {
         const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-        updates.potatoHolder = newHolder;
+        transaction.update(gameRef, {
+          potatoHolder: newHolder
+        });
         playerClicks = 0;
       }
-      transaction.update(gameRef, updates);
     });
     clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
     resetHoldTimer();
@@ -288,8 +314,7 @@ async function passPotatoDueToTimeout() {
 
       const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
       transaction.update(gameRef, {
-        potatoHolder: newHolder,
-        lyricIndex: (game.lyricIndex + 1) % lyrics.length
+        potatoHolder: newHolder
       });
       playerClicks = 0;
     });
@@ -338,8 +363,11 @@ function listenForGameUpdates() {
       playerClicks = 0;
       stopHoldTimer();
       passBtn.style.display = "none";
-    }
-    else if (game.state === "playing") {
+      if(lyricTimer) {
+        clearInterval(lyricTimer);
+        lyricTimer = null;
+      }
+    } else if (game.state === "playing") {
       lobbyArea.style.display = "none";
       gameArea.style.display = "block";
       potatoHolder = game.potatoHolder;
@@ -365,11 +393,55 @@ function listenForGameUpdates() {
       }
       prevPotatoHolder = potatoHolder;
 
+      renderDiagram(game.players, game.potatoHolder);
+
       const me = game.players.find(p => p.id === playerId);
       if (!me || !me.alive) {
-        setStatus("You are out! Returning to lobby...");
+        alert("You are out!");
         await leaveGame();
       }
+
+      if (isHost && !lyricTimer) {
+        lyricTimer = setInterval(async () => {
+          try {
+            await runTransaction(db, async (transaction) => {
+              const snap = await transaction.get(gameRef);
+              if (!snap.exists()) return;
+              const game = snap.data();
+              if (game.state !== "playing") return;
+
+              let newIndex = (game.lyricIndex + 1) % lyrics.length;
+              let updates = { lyricIndex: newIndex };
+
+              if (newIndex === outIndex) {
+                const playersUpdated = game.players.map(p =>
+                  p.id === game.potatoHolder ? { ...p, alive: false } : p
+                );
+                updates.players = playersUpdated;
+                const alivePlayers = playersUpdated.filter(p => p.alive);
+                if (alivePlayers.length <= 1) {
+                  updates.state = "ended";
+                } else {
+                  updates.potatoHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+                  updates.lyricIndex = 0;
+                }
+              }
+
+              transaction.update(gameRef, updates);
+            });
+          } catch (e) {
+            console.error("Lyric transaction failed:", e);
+          }
+        }, 2000);
+      }
+    } else if (game.state === "ended") {
+      const me = game.players.find(p => p.id === playerId);
+      if (me && me.alive) {
+        alert("You win!");
+      } else {
+        alert("Game over");
+      }
+      await leaveGame();
     }
     roomDisplay.textContent = gameId;
   });
@@ -396,8 +468,40 @@ function renderPlayers(players, hostId) {
 
     playerListEl.appendChild(div);
   });
-  // Ensure start button visibility is updated after rendering players
   setStartButton(isHost && players.filter(p => p.alive).length >= 2);
+}
+
+function renderDiagram(players, holder) {
+  const diagramEl = document.getElementById("playerDiagram");
+  diagramEl.innerHTML = "";
+  diagramEl.style.position = "relative";
+  diagramEl.style.width = "400px";
+  diagramEl.style.height = "400px";
+
+  const num = players.length;
+  players.forEach((p, i) => {
+    const icon = document.createElement("div");
+    icon.style.position = "absolute";
+    const angle = 2 * Math.PI * i / num;
+    icon.style.left = `${200 + 150 * Math.cos(angle)}px`;
+    icon.style.top = `${200 + 150 * Math.sin(angle)}px`;
+    icon.style.transform = "translate(-50%, -50%)";
+    icon.style.textAlign = "center";
+    if (!p.alive) icon.style.opacity = "0.5";
+
+    const nameSpan = document.createElement("div");
+    nameSpan.textContent = p.name;
+    nameSpan.style.fontSize = "12px";
+    icon.appendChild(nameSpan);
+
+    const avatar = document.createElement("div");
+    avatar.textContent = p.alive ? "🧑" : "💀";
+    if (p.id === holder && p.alive) avatar.textContent += "🥔";
+    avatar.style.fontSize = "30px";
+    icon.appendChild(avatar);
+
+    diagramEl.appendChild(icon);
+  });
 }
 
 async function leaveGame() {
@@ -435,6 +539,10 @@ async function leaveGame() {
   passBtn.style.display = "none";
   setStatus("");
   stopHoldTimer();
+  if (lyricTimer) {
+    clearInterval(lyricTimer);
+    lyricTimer = null;
+  }
   roomDisplay.textContent = "";
 }
 
