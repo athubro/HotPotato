@@ -7,72 +7,29 @@
 <style>
   body {
     font-family: Arial, sans-serif;
-    background-color: #ffe6f0;
-    margin: 0;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    background:#ffe6f0;
+    margin:0; padding:20px;
+    display:flex; flex-direction:column; align-items:center;
   }
-  h1 {
-    color: #ff4da6;
-  }
+  h1 { color:#ff4da6; }
   button {
-    background-color: #ff80bf;
-    border: none;
-    padding: 10px 15px;
-    margin: 5px;
-    cursor: pointer;
-    color: white;
-    border-radius: 8px;
-    font-size: 14px;
+    background:#ff80bf; border:none; padding:10px 15px;
+    margin:5px; cursor:pointer; color:#fff; border-radius:8px; font-size:14px;
   }
-  button:hover {
-    background-color: #ff4da6;
-  }
-  #gameArea, #startGame {
-    display: none;
-  }
-  #playerList {
-    margin-top: 10px;
-    margin-bottom: 10px;
-  }
+  button:hover { background:#ff4da6; }
+  #gameArea, #startGame, #leaveGame { display:none; }
+  #playerList { margin:10px 0; width: 200px; }
   .player {
-    padding: 8px 12px;
-    background-color: #fff0f5;
-    border: 1px solid #ffb3d9;
-    border-radius: 6px;
-    margin: 3px;
+    padding:8px 12px; background:#fff0f5; border:1px solid #ffb3d9;
+    border-radius:6px; margin:3px; display:flex; justify-content:space-between;
   }
-  .player.host {
-    border: 2px solid gold;
-  }
-  .player.out {
-    opacity: 0.5;
-    text-decoration: line-through;
-  }
-  #lyricDisplay {
-    font-size: 24px;
-    font-weight: bold;
-    margin: 20px 0;
-  }
-  #potatoStatus {
-    margin-bottom: 10px;
-  }
-  #clicksDisplay {
-    font-weight: bold;
-    margin-bottom: 10px;
-  }
-  #potatoTimerDisplay {
-    margin-top: 5px;
-    font-size: 14px;
-    color: #cc3366;
-  }
-  #statusBar {
-    margin-top: 15px;
-    color: #990033;
-    min-height: 18px;
-  }
+  .player.host { border:2px solid gold; font-weight:bold; }
+  .player.out { opacity:0.5; text-decoration:line-through; }
+  #lyricDisplay { font-size:24px; font-weight:bold; margin:20px 0; }
+  #potatoStatus { margin-bottom:10px; }
+  #clicksDisplay { font-weight:bold; margin-bottom:10px; }
+  #potatoTimerDisplay { margin-top:5px; font-size:14px; color:#cc3366; }
+  #statusBar { margin-top:15px; color:#990033; min-height:18px; }
 </style>
 </head>
 <body>
@@ -82,6 +39,7 @@
 <div id="lobbyArea">
   <input type="text" id="username" placeholder="Enter your name" />
   <button id="joinGame">Join Game</button>
+  <button id="leaveGame">Leave Game</button>
   <div id="playerList"></div>
   <button id="startGame">Start Game</button>
 </div>
@@ -99,7 +57,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, runTransaction
+  getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemove, runTransaction
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -115,7 +73,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ====== Constants ======
 const gameId = "main-room";
 const lyrics = [
   "hot", "potato", "hot", "potato", "hot", "potato", "hot", "potato",
@@ -124,7 +81,6 @@ const lyrics = [
 const clicksToPass = 5;
 const potatoMaxHoldSeconds = 5;
 
-// ====== State ======
 let playerId = localStorage.getItem('playerId') || null;
 let playerName = localStorage.getItem('playerName') || "";
 let potatoHolder = null;
@@ -136,9 +92,9 @@ let isHost = false;
 let joined = false;
 let gameUnsub = null;
 
-// ====== DOM ======
 const usernameInput = document.getElementById("username");
 const joinBtn = document.getElementById("joinGame");
+const leaveBtn = document.getElementById("leaveGame");
 const startBtn = document.getElementById("startGame");
 const playerListEl = document.getElementById("playerList");
 const gameArea = document.getElementById("gameArea");
@@ -150,14 +106,13 @@ const lyricDisplay = document.getElementById("lyricDisplay");
 const statusBar = document.getElementById("statusBar");
 const lobbyArea = document.getElementById("lobbyArea");
 
-// ====== Initialize UI if player already joined =====
 if(playerId && playerName) {
   usernameInput.value = playerName;
-  joinBtn.textContent = "Joined";
+  joined = true;
+  joinBtn.style.display = "none";
+  leaveBtn.style.display = "inline-block";
   listenForGameUpdates();
 }
-
-// ====== Helper functions ======
 
 function setStatus(text) {
   statusBar.textContent = text;
@@ -188,8 +143,6 @@ function stopHoldTimer() {
   }
 }
 
-// ====== Game Logic ======
-
 joinBtn.addEventListener("click", async () => {
   if(joined) return;
   playerName = usernameInput.value.trim();
@@ -197,7 +150,6 @@ joinBtn.addEventListener("click", async () => {
     alert("Please enter your name!");
     return;
   }
-
   if(playerId) {
     alert("You have already joined the game on this device.");
     return;
@@ -208,7 +160,6 @@ joinBtn.addEventListener("click", async () => {
     const gameRef = doc(db, "games", gameId);
     const snap = await getDoc(gameRef);
     if (!snap.exists()) {
-      // Create new game with first player as host
       await setDoc(gameRef, {
         players: [],
         state: "lobby",
@@ -221,20 +172,25 @@ joinBtn.addEventListener("click", async () => {
       const gameData = snap.data();
       isHost = (gameData.host === playerId);
     }
-    // Add player if not already in list
     await updateDoc(gameRef, {
       players: arrayUnion({ id: playerId, name: playerName, alive: true })
     });
     localStorage.setItem('playerId', playerId);
     localStorage.setItem('playerName', playerName);
     joined = true;
-    joinBtn.textContent = "Joined";
+    joinBtn.style.display = "none";
+    leaveBtn.style.display = "inline-block";
     listenForGameUpdates();
     setStatus("Joined game lobby.");
   } catch (err) {
     console.error(err);
     setStatus("Error joining game.");
   }
+});
+
+leaveBtn.addEventListener("click", async () => {
+  if(!joined) return;
+  await leaveGame();
 });
 
 startBtn.addEventListener("click", async () => {
@@ -273,13 +229,11 @@ passBtn.addEventListener("click", async () => {
       const game = snap.data();
       const alivePlayers = game.players.filter(p => p.alive && p.id !== playerId);
       if (alivePlayers.length === 0) {
-        // No one else to pass to
         playerClicks = 0;
         return;
       }
       playerClicks++;
       if (playerClicks >= clicksToPass) {
-        // Pass potato
         const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
         transaction.update(gameRef, {
           potatoHolder: newHolder,
@@ -328,13 +282,26 @@ function listenForGameUpdates() {
 
   if(gameUnsub) gameUnsub();
 
-  gameUnsub = onSnapshot(gameRef, (snap) => {
+  gameUnsub = onSnapshot(gameRef, async (snap) => {
     if (!snap.exists()) return;
     const game = snap.data();
 
-    renderPlayers(game.players, game.host);
+    // If no valid host or host is not alive, assign first alive player as host
+    if (!game.host || !game.players.some(p => p.id === game.host && p.alive)) {
+      const firstAlive = game.players.find(p => p.alive);
+      if (firstAlive) {
+        try {
+          await updateDoc(doc(db, "games", gameId), { host: firstAlive.id });
+          if(firstAlive.id === playerId) isHost = true;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    } else {
+      isHost = (game.host === playerId);
+    }
 
-    isHost = (game.host === playerId);
+    renderPlayers(game.players, game.host);
 
     if (game.state === "lobby") {
       setStartButton(isHost && game.players.filter(p => p.alive).length >= 2);
@@ -383,6 +350,18 @@ function renderPlayers(players, hostId) {
     if (p.id === hostId) div.classList.add("host");
     if (!p.alive) div.classList.add("out");
     div.textContent = p.name + (p.alive ? "" : " (out)");
+
+    // Leave button on each player only if it's you
+    if (p.id === playerId && joined) {
+      const leaveBtn = document.createElement("button");
+      leaveBtn.textContent = "Leave";
+      leaveBtn.style.marginLeft = "8px";
+      leaveBtn.onclick = async () => {
+        await leaveGame();
+      };
+      div.appendChild(leaveBtn);
+    }
+
     playerListEl.appendChild(div);
   });
 }
@@ -396,6 +375,11 @@ async function leaveGame() {
     const game = snap.data();
     const newPlayers = game.players.filter(p => p.id !== playerId);
     await updateDoc(gameRef, { players: newPlayers });
+
+    // If host left, assign new host
+    if (game.host === playerId && newPlayers.length > 0) {
+      await updateDoc(gameRef, { host: newPlayers[0].id });
+    }
   } catch (e) {
     console.error(e);
   }
@@ -404,7 +388,8 @@ async function leaveGame() {
   playerId = null;
   playerName = "";
   joined = false;
-  joinBtn.textContent = "Join Game";
+  joinBtn.style.display = "inline-block";
+  leaveBtn.style.display = "none";
   setStartButton(false);
   gameArea.style.display = "none";
   lobbyArea.style.display = "block";
@@ -417,49 +402,15 @@ async function leaveGame() {
 }
 
 window.addEventListener('beforeunload', async () => {
-  if (!playerId) return;
-  const gameRef = doc(db, "games", gameId);
-  try {
-    const snap = await getDoc(gameRef);
-    if (!snap.exists()) return;
-    const game = snap.data();
-    const newPlayers = game.players.filter(p => p.id !== playerId);
-    await updateDoc(gameRef, { players: newPlayers });
-  } catch (e) {
-    console.error(e);
-  }
-  localStorage.removeItem('playerId');
-  localStorage.removeItem('playerName');
+  // Don't auto-remove player on reload — keep them in the game
+  // (Remove player only if Leave button clicked)
 });
-
-const gameRef = doc(db, "games", gameId);
-onSnapshot(gameRef, (snap) => {
-  if(!snap.exists()) return;
-  const game = snap.data();
-  checkForWinnerAndReset(game);
-});
-
-async function checkForWinnerAndReset(game) {
-  const alivePlayers = game.players.filter(p => p.alive);
-  if (alivePlayers.length === 1 && game.state === "playing") {
-    const winner = alivePlayers[0];
-    setStatus(`Game over! Winner: ${winner.name}`);
-    setTimeout(async () => {
-      const gameRef = doc(db, "games", gameId);
-      await updateDoc(gameRef, {
-        state: "lobby",
-        potatoHolder: null,
-        lyricIndex: 0,
-        players: game.players.map(p => ({ ...p, alive: true }))
-      });
-    }, 5000);
-  }
-}
 
 function setStartButton(enabled) {
   startBtn.disabled = !enabled;
   startBtn.style.display = enabled ? "inline-block" : "none";
 }
+
 </script>
 
 </body>
