@@ -1,1 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Online Hot Potato</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="username" id="usernameDisplay">Guest</div>
+      <button id="changeNameBtn">Change</button>
+    </header>
 
+    <main>
+      <section id="homeScreen" class="screen">
+        <h1>Hot Potato</h1>
+        <input id="nameInput" placeholder="Enter username (optional)" />
+        <button id="playBtn">Play</button>
+      </section>
+
+      <section id="lobbyScreen" class="screen hidden">
+        <h2>Lobby</h2>
+        <div>Waiting for players... (<span id="playerCount">0</span>)</div>
+        <div>Starts in: <span id="lobbyTimer">20</span>s</div>
+        <div id="playersList"></div>
+        <div id="lobbyStatus" class="status"></div>
+      </section>
+
+      <section id="gameScreen" class="screen hidden">
+        <div id="lyricsBar"></div>
+        <div id="gameArea"></div>
+        <div id="controls">
+          <div id="potatoInfo">Potato Holder: <span id="potatoHolderName">-</span></div>
+          <div id="passCount">Clicks: <span id="clicksCount">0</span>/5</div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer>
+      <div id="statusBar"></div>
+    </footer>
+  </div>
+
+  <script type="module" src="js/firebase.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
