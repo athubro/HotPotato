@@ -1,50 +1,191 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Online Hot Potato</title>
-  <link rel="stylesheet" href="css/style.css">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hot Potato Game</title>
+<style>
+/* ===== CSS ===== */
+body {
+  font-family: Arial, sans-serif;
+  background-color: #ffe6f0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+h1 {
+  color: #ff4da6;
+}
+button {
+  background-color: #ff80bf;
+  border: none;
+  padding: 10px 15px;
+  margin: 5px;
+  cursor: pointer;
+  color: white;
+  border-radius: 8px;
+  font-size: 14px;
+}
+button:hover {
+  background-color: #ff4da6;
+}
+#gameArea {
+  display: none;
+  margin-top: 20px;
+}
+.player {
+  padding: 8px 12px;
+  background-color: #fff0f5;
+  border: 1px solid #ffb3d9;
+  border-radius: 6px;
+  margin: 5px;
+}
+.player.host {
+  border: 2px solid gold;
+}
+.player.ready {
+  background-color: #d4f8d4;
+}
+</style>
 </head>
 <body>
-  <div id="app">
-    <header>
-      <div class="username" id="usernameDisplay">Guest</div>
-      <button id="changeNameBtn">Change</button>
-    </header>
+<h1>Hot Potato Game</h1>
 
-    <main>
-      <section id="homeScreen" class="screen">
-        <h1>Hot Potato</h1>
-        <input id="nameInput" placeholder="Enter username (optional)" />
-        <button id="playBtn">Play</button>
-      </section>
+<div id="lobbyArea">
+  <input type="text" id="username" placeholder="Enter your name" />
+  <button id="joinGame">Join Game</button>
+  <div id="playerList"></div>
+  <button id="startGame" style="display:none;">Start Game</button>
+</div>
 
-      <section id="lobbyScreen" class="screen hidden">
-        <h2>Lobby</h2>
-        <div>Waiting for players... (<span id="playerCount">0</span>)</div>
-        <div>Starts in: <span id="lobbyTimer">20</span>s</div>
-        <div id="playersList"></div>
-        <div id="lobbyStatus" class="status"></div>
-      </section>
+<div id="gameArea">
+  <h2 id="potatoStatus">Waiting...</h2>
+  <button id="passPotato">Pass Potato</button>
+  <div id="lyricDisplay"></div>
+</div>
 
-      <section id="gameScreen" class="screen hidden">
-        <div id="lyricsBar"></div>
-        <div id="gameArea"></div>
-        <div id="controls">
-          <div id="potatoInfo">Potato Holder: <span id="potatoHolderName">-</span></div>
-          <div id="passCount">Clicks: <span id="clicksCount">0</span>/5</div>
-        </div>
-      </section>
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+import {
+  getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemove, runTransaction
+} from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-    </main>
+const firebaseConfig = {
+  // your firebase config here
+};
 
-    <footer>
-      <div id="statusBar"></div>
-    </footer>
-  </div>
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
-  <script type="module" src="js/firebase.js"></script>
-  <script type="module" src="js/app.js"></script>
+// ===== GAME VARIABLES =====
+let playerId = null;
+let playerName = "";
+let gameId = "main-room";
+let potatoHolder = null;
+let lyrics = ["Hot", "Potato", "Hot", "Potato", "Who’s", "Got", "The", "Potato?"];
+let lyricIndex = 0;
+
+// ===== ELEMENTS =====
+const usernameInput = document.getElementById("username");
+const joinBtn = document.getElementById("joinGame");
+const startBtn = document.getElementById("startGame");
+const playerListEl = document.getElementById("playerList");
+const gameArea = document.getElementById("gameArea");
+const potatoStatus = document.getElementById("potatoStatus");
+const passBtn = document.getElementById("passPotato");
+const lyricDisplay = document.getElementById("lyricDisplay");
+
+// ===== JOIN GAME =====
+joinBtn.addEventListener("click", async () => {
+  playerName = usernameInput.value.trim();
+  if (!playerName) return alert("Enter your name!");
+  playerId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const gameRef = doc(db, "games", gameId);
+  const snap = await getDoc(gameRef);
+  if (!snap.exists()) {
+    await setDoc(gameRef, {
+      players: [],
+      state: "lobby",
+      host: playerId,
+      potatoHolder: null
+    });
+  }
+  await updateDoc(gameRef, {
+    players: arrayUnion({ id: playerId, name: playerName, alive: true })
+  });
+  listenForGameUpdates();
+});
+
+// ===== LISTEN FOR UPDATES =====
+function listenForGameUpdates() {
+  const gameRef = doc(db, "games", gameId);
+  onSnapshot(gameRef, (snap) => {
+    if (!snap.exists()) return;
+    const game = snap.data();
+    renderPlayers(game.players, game.host);
+    if (game.state === "playing") {
+      document.getElementById("lobbyArea").style.display = "none";
+      gameArea.style.display = "block";
+      potatoHolder = game.potatoHolder;
+      potatoStatus.textContent =
+        potatoHolder === playerId
+          ? "You have the potato!"
+          : `${game.players.find((p) => p.id === potatoHolder)?.name || "Unknown"} has the potato`;
+    }
+  });
+}
+
+// ===== RENDER PLAYERS =====
+function renderPlayers(players, hostId) {
+  playerListEl.innerHTML = "";
+  players.forEach((p) => {
+    const div = document.createElement("div");
+    div.className = "player";
+    if (p.id === hostId) div.classList.add("host");
+    div.textContent = p.name + (p.alive ? "" : " (out)");
+    playerListEl.appendChild(div);
+  });
+  if (hostId === playerId) startBtn.style.display = "inline-block";
+}
+
+// ===== START GAME =====
+startBtn.addEventListener("click", async () => {
+  const gameRef = doc(db, "games", gameId);
+  const snap = await getDoc(gameRef);
+  const game = snap.data();
+  if (game.host !== playerId) return;
+  const alivePlayers = game.players.filter((p) => p.alive);
+  const randomHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+  await updateDoc(gameRef, {
+    state: "playing",
+    potatoHolder: randomHolder
+  });
+  lyricIndex = 0;
+  showNextLyric();
+});
+
+// ===== PASS POTATO =====
+passBtn.addEventListener("click", async () => {
+  if (potatoHolder !== playerId) return;
+  const gameRef = doc(db, "games", gameId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(gameRef);
+    const game = snap.data();
+    const alivePlayers = game.players.filter((p) => p.alive && p.id !== playerId);
+    const nextHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+    transaction.update(gameRef, { potatoHolder: nextHolder });
+  });
+  lyricIndex = (lyricIndex + 1) % lyrics.length;
+  showNextLyric();
+});
+
+// ===== LYRICS =====
+function showNextLyric() {
+  lyricDisplay.textContent = lyrics[lyricIndex];
+}
+</script>
 </body>
 </html>
