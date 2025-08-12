@@ -140,8 +140,17 @@
     const game = (await getDoc(gameRef)).data();
     if (!game.players.some(p => p.id === playerId)) {
       await updateDoc(gameRef, {
-        players: arrayUnion({ id: playerId, name: playerName, alive: true, clicks: 0 })
+        players: arrayUnion({ id: playerId, name: playerName, alive: true, clicks: 0, lastActive: Date.now() })
       });
+    } else {
+      // Update lastActive if player re-joins
+      const updatedPlayers = game.players.map(p => {
+        if (p.id === playerId) {
+          return { ...p, lastActive: Date.now() };
+        }
+        return p;
+      });
+      await updateDoc(gameRef, { players: updatedPlayers });
     }
 
     listenForGameUpdates();
@@ -209,6 +218,34 @@
     }
   }
 
+  // ===== REMOVE OFFLINE PLAYERS =====
+  async function removeOfflinePlayers(players) {
+    // Define "offline" as not updated lastActive in last 20 seconds
+    const now = Date.now();
+    const offlineThreshold = 20 * 1000;
+
+    const offlinePlayers = players.filter(p => (now - (p.lastActive || 0)) > offlineThreshold && p.alive);
+
+    if (offlinePlayers.length === 0) return;
+
+    const gameRef = doc(db, "games", gameId);
+
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(gameRef);
+      const game = snap.data();
+
+      // Mark offline players as out
+      const updatedPlayers = game.players.map(p => {
+        if (offlinePlayers.some(op => op.id === p.id)) {
+          return {...p, alive: false, clicks: 0};
+        }
+        return p;
+      });
+
+      transaction.update(gameRef, { players: updatedPlayers });
+    });
+  }
+
   // ===== START GAME =====
   startBtn.addEventListener("click", async () => {
     const gameRef = doc(db, "games", gameId);
@@ -216,9 +253,16 @@
     const game = snap.data();
     if (game.host !== playerId) return;
 
-    const alivePlayers = game.players.filter((p) => p.alive);
+    // Remove offline players before starting
+    await removeOfflinePlayers(game.players);
+
+    // Re-fetch after cleanup
+    const newSnap = await getDoc(gameRef);
+    const newGame = newSnap.data();
+
+    const alivePlayers = newGame.players.filter((p) => p.alive);
     if (alivePlayers.length < 2) {
-      alert("Need at least 2 players to start.");
+      alert("Need at least 2 players alive to start.");
       return;
     }
 
@@ -249,7 +293,7 @@
       // Update player's clicks count in players array
       const updatedPlayers = game.players.map(p => {
         if (p.id === playerId) {
-          return { ...p, clicks: localClicks };
+          return { ...p, clicks: localClicks, lastActive: Date.now() };
         }
         return p;
       });
@@ -299,17 +343,44 @@
           transaction.update(gameRef, {
             players: updatedPlayers,
             potatoHolder: null,
-            state: "lobby",
             lyricIndex: 0
           });
         });
-        alert("Player holding the potato is out! Starting next round or back to lobby.");
+
+        alert("Player holding the potato is out! Starting next round.");
+
+        // Restart game automatically if enough players left
+        const gameRef2 = doc(db, "games", gameId);
+        const snap2 = await getDoc(gameRef2);
+        const game2 = snap2.data();
+
+        const alivePlayers = game2.players.filter(p => p.alive);
+        if (alivePlayers.length >= 2) {
+          const randomHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+          await updateDoc(gameRef2, {
+            state: "playing",
+            potatoHolder: randomHolder,
+            lyricIndex: 0
+          });
+          lyricIndex = 0;
+          startLyricsFlow();
+        } else {
+          // Not enough players: go to lobby
+          await updateDoc(gameRef2, {
+            state: "lobby",
+            potatoHolder: null,
+            lyricIndex: 0
+          });
+          alert("Not enough players alive to continue. Back to lobby.");
+        }
+
         return;
       }
 
       // Update lyric index in Firestore
       const gameRef = doc(db, "games", gameId);
       await updateDoc(gameRef, { lyricIndex });
+
     }, 900);
   }
 
@@ -366,7 +437,6 @@
       passTimerEl.textContent = "5";
     }
   }
-
 </script>
 </body>
 </html>
