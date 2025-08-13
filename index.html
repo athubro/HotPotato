@@ -123,6 +123,10 @@
   .answerBtn:hover {
     background: #cc0000;
   }
+  .answerBtn:disabled {
+    background: #555;
+    cursor: not-allowed;
+  }
   #triviaFeedback {
     margin-top: 10px;
     font-weight: bold;
@@ -292,6 +296,7 @@ async function showTriviaModal() {
     const btn = document.createElement("button");
     btn.className = "answerBtn";
     btn.textContent = answer;
+    btn.disabled = false; // Ensure buttons are enabled for new question
     btn.onclick = () => handleTriviaAnswer(answer, questionData.correctAnswer);
     triviaAnswersEl.appendChild(btn);
   });
@@ -329,6 +334,9 @@ async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
     }
   } else {
     triviaFeedbackEl.textContent = "Incorrect, moving on...";
+    // Disable all answer buttons
+    const buttons = triviaAnswersEl.querySelectorAll(".answerBtn");
+    buttons.forEach(btn => btn.disabled = true);
     triviaTimer = setTimeout(async () => {
       await showTriviaModal();
     }, 3000);
