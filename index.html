@@ -127,7 +127,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
 import {
   getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemove, runTransaction,
-  collection, query, where, getDocs
+  collection, query, where, getDocs, deleteDoc
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -398,7 +398,11 @@ function listenForGameUpdates() {
   if(gameUnsub) gameUnsub();
 
   gameUnsub = onSnapshot(gameRef, async (snap) => {
-    if (!snap.exists()) return;
+    if (!snap.exists()) {
+      setStatus("Game room deleted or does not exist.");
+      await leaveGame();
+      return;
+    }
     const game = snap.data();
 
     // If no valid host or host is not alive, assign first alive player as host
@@ -509,17 +513,11 @@ function listenForGameUpdates() {
       }
       if (isHost) {
         try {
-          await updateDoc(gameRef, {
-            players: [],
-            state: "lobby",
-            potatoHolder: null,
-            lyricIndex: 0,
-            host: null
-          });
-          setStatus("Game room reset for new game.");
+          await deleteDoc(gameRef);
+          setStatus("Game room deleted.");
         } catch (e) {
-          console.error("Failed to reset game room:", e);
-          setStatus("Error resetting game room.");
+          console.error("Failed to delete game room:", e);
+          setStatus("Error deleting game room.");
         }
       }
       await leaveGame();
@@ -604,9 +602,10 @@ async function leaveGame() {
   }
   localStorage.removeItem('playerId');
   localStorage.removeItem('playerName');
-  localStorage.setItem('gameId', gameId);
+  localStorage.removeItem('gameId');
   playerId = null;
   playerName = "";
+  gameId = null;
   joined = false;
   joinBtn.style.display = "inline-block";
   leaveBtn.style.display = "none";
@@ -624,7 +623,7 @@ async function leaveGame() {
     clearInterval(lyricTimer);
     lyricTimer = null;
   }
-  roomDisplay.textContent = gameId;
+  roomDisplay.textContent = "";
 }
 
 window.addEventListener('beforeunload', async () => {
