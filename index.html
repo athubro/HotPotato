@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Hot Potato Trivia Game</title>
+<title>Hot Potato Online</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -164,7 +164,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
 import {
   getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemove, runTransaction,
-  collection, query, where, getDocs, deleteDoc
+  collection, query, where, getDocs
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -328,7 +328,7 @@ async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
       setStatus("Error passing potato. Please try again.");
     }
   } else {
-    triviaFeedbackEl.textContent = "Incorrect, try again!";
+    triviaFeedbackEl.textContent = "Moving on...";
     triviaTimer = setTimeout(async () => {
       await showTriviaModal();
     }, 3000);
@@ -451,7 +451,7 @@ function listenForGameUpdates() {
 
   gameUnsub = onSnapshot(gameRef, async (snap) => {
     if (!snap.exists()) {
-      setStatus("Game room deleted or does not exist.");
+      setStatus("Game room does not exist.");
       await leaveGame();
       return;
     }
@@ -558,14 +558,29 @@ function listenForGameUpdates() {
       }
       if (isHost) {
         try {
-          await deleteDoc(gameRef);
-          setStatus("Game room deleted.");
+          await updateDoc(gameRef, {
+            players: [],
+            state: "lobby",
+            host: null,
+            potatoHolder: null,
+            lyricIndex: 0
+          });
+          setStatus("Game room reset for new game.");
         } catch (e) {
-          console.error("Failed to delete game room:", e);
-          setStatus("Error deleting game room.");
+          console.error("Failed to reset game room:", e);
+          setStatus("Error resetting game room.");
         }
       }
-      await leaveGame();
+      // Do not call leaveGame to allow players to stay in the room
+      gameArea.style.display = "none";
+      lobbyArea.style.display = "block";
+      potatoStatus.textContent = "Waiting for game to start...";
+      lyricDisplay.textContent = "";
+      closeTriviaModal();
+      if (lyricTimer) {
+        clearInterval(lyricTimer);
+        lyricTimer = null;
+      }
     }
     roomDisplay.textContent = gameId;
   });
@@ -649,10 +664,9 @@ async function leaveGame() {
   }
   localStorage.removeItem('playerId');
   localStorage.removeItem('playerName');
-  localStorage.removeItem('gameId');
+  // Do not remove gameId to allow rejoining the same room
   playerId = null;
   playerName = "";
-  gameId = null;
   joined = false;
   joinBtn.style.display = "inline-block";
   leaveBtn.style.display = "none";
@@ -667,7 +681,7 @@ async function leaveGame() {
     clearInterval(lyricTimer);
     lyricTimer = null;
   }
-  roomDisplay.textContent = "";
+  roomDisplay.textContent = gameId;
 }
 
 window.addEventListener('beforeunload', async () => {
