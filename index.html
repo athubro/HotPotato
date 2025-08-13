@@ -350,10 +350,10 @@ passBtn.addEventListener("click", async () => {
           potatoHolder: newHolder
         });
         playerClicks = 0;
+        resetHoldTimer();
       }
     });
     clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
-    resetHoldTimer();
   } catch (e) {
     console.error("Transaction failed:", e);
     setStatus("Error passing potato. Please try again.");
@@ -382,6 +382,7 @@ async function passPotatoDueToTimeout() {
         potatoHolder: newHolder
       });
       playerClicks = 0;
+      resetHoldTimer();
     });
     clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
   } catch (e) {
@@ -444,11 +445,11 @@ function listenForGameUpdates() {
         if (prevPotatoHolder !== potatoHolder) {
           playerClicks = 0;
           clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
+          resetHoldTimer();
         }
         potatoStatus.textContent = "You have the potato!";
         clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
         passBtn.style.display = "inline-block";
-        resetHoldTimer();
       } else {
         const holderName = (game.players.find(p => p.id === potatoHolder) || {}).name || "Someone";
         potatoStatus.textContent = `${holderName} has the potato`;
@@ -505,6 +506,21 @@ function listenForGameUpdates() {
         alert("You win!");
       } else {
         alert("Game over");
+      }
+      if (isHost) {
+        try {
+          await updateDoc(gameRef, {
+            players: [],
+            state: "lobby",
+            potatoHolder: null,
+            lyricIndex: 0,
+            host: null
+          });
+          setStatus("Game room reset for new game.");
+        } catch (e) {
+          console.error("Failed to reset game room:", e);
+          setStatus("Error resetting game room.");
+        }
       }
       await leaveGame();
     }
@@ -588,10 +604,9 @@ async function leaveGame() {
   }
   localStorage.removeItem('playerId');
   localStorage.removeItem('playerName');
-  localStorage.removeItem('gameId');
+  localStorage.setItem('gameId', gameId);
   playerId = null;
   playerName = "";
-  gameId = null;
   joined = false;
   joinBtn.style.display = "inline-block";
   leaveBtn.style.display = "none";
@@ -609,7 +624,7 @@ async function leaveGame() {
     clearInterval(lyricTimer);
     lyricTimer = null;
   }
-  roomDisplay.textContent = "";
+  roomDisplay.textContent = gameId;
 }
 
 window.addEventListener('beforeunload', async () => {
