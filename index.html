@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Hot Potato Game</title>
+<title>Hot Potato Trivia Game</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -71,16 +71,6 @@
     margin-bottom: 10px;
     color: #fff;
   }
-  #clicksDisplay {
-    font-weight: bold;
-    margin-bottom: 10px;
-    color: #fff;
-  }
-  #potatoTimerDisplay {
-    margin-top: 5px;
-    font-size: 14px;
-    color: #ffd700;
-  }
   #statusBar {
     margin-top: 15px;
     color: #ffd700;
@@ -96,12 +86,51 @@
     max-width: 200px;
     margin-bottom: 20px;
   }
+  #triviaModal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+  }
+  #triviaContent {
+    background: #ff4500;
+    padding: 20px;
+    border-radius: 10px;
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    color: #fff;
+    border: 2px solid #ffd700;
+  }
+  #triviaQuestion {
+    font-size: 18px;
+    margin-bottom: 20px;
+  }
+  .answerBtn {
+    display: block;
+    width: 80%;
+    margin: 10px auto;
+    background: #ff6347;
+  }
+  .answerBtn:hover {
+    background: #cc0000;
+  }
+  #triviaFeedback {
+    margin-top: 10px;
+    font-weight: bold;
+  }
 </style>
 </head>
 <body>
 
 <img id="hotPotatoImage" src="https://png.pngtree.com/png-vector/20220917/ourmid/pngtree-hot-potato-saying-cartoon-dangerous-proverb-drawing-vector-png-image_14545442.png" alt="Hot Potato" />
-<h1>Hot Potato Game</h1>
+<h1>Hot Potato Trivia Game</h1>
 <p id="currentRoom">Current Room: <span id="roomDisplay"></span></p>
 
 <div id="lobbyArea">
@@ -114,11 +143,16 @@
 
 <div id="gameArea">
   <div id="potatoStatus">Waiting for game to start...</div>
-  <div id="clicksDisplay">Your clicks: 0</div>
-  <button id="passPotato">Click Potato</button>
-  <div id="potatoTimerDisplay"></div>
   <div id="lyricDisplay"></div>
   <div id="playerDiagram"></div>
+</div>
+
+<div id="triviaModal">
+  <div id="triviaContent">
+    <div id="triviaQuestion"></div>
+    <div id="triviaAnswers"></div>
+    <div id="triviaFeedback"></div>
+  </div>
 </div>
 
 <div id="statusBar"></div>
@@ -147,8 +181,6 @@ const lyrics = [
   "hot", "potato", "hot", "potato", "hot", "potato", "hot", "potato",
   "if", "you", "have", "the", "Potato", "you", "are", "out!"
 ];
-const clicksToPass = 5;
-const potatoMaxHoldSeconds = 5;
 const outIndex = lyrics.indexOf("out!");
 
 let gameId = localStorage.getItem('gameId') || null;
@@ -157,13 +189,12 @@ let playerName = localStorage.getItem('playerName') || "";
 let potatoHolder = null;
 let prevPotatoHolder = null;
 let lyricIndex = 0;
-let playerClicks = 0;
-let holdTimer = null;
-let holdSecondsLeft = potatoMaxHoldSeconds;
 let isHost = false;
 let joined = false;
 let gameUnsub = null;
 let lyricTimer = null;
+let triviaQuestion = null;
+let triviaTimer = null;
 
 const usernameInput = document.getElementById("username");
 const joinBtn = document.getElementById("joinGame");
@@ -172,13 +203,14 @@ const startBtn = document.getElementById("startGame");
 const playerListEl = document.getElementById("playerList");
 const gameArea = document.getElementById("gameArea");
 const potatoStatus = document.getElementById("potatoStatus");
-const clicksDisplay = document.getElementById("clicksDisplay");
-const passBtn = document.getElementById("passPotato");
-const potatoTimerDisplay = document.getElementById("potatoTimerDisplay");
 const lyricDisplay = document.getElementById("lyricDisplay");
 const statusBar = document.getElementById("statusBar");
 const lobbyArea = document.getElementById("lobbyArea");
 const roomDisplay = document.getElementById("roomDisplay");
+const triviaModal = document.getElementById("triviaModal");
+const triviaQuestionEl = document.getElementById("triviaQuestion");
+const triviaAnswersEl = document.getElementById("triviaAnswers");
+const triviaFeedbackEl = document.getElementById("triviaFeedback");
 
 if(playerId && playerName && gameId) {
   usernameInput.value = playerName;
@@ -195,28 +227,94 @@ function setStatus(text) {
   statusBar.textContent = text;
 }
 
-function resetHoldTimer() {
-  if(holdTimer) clearInterval(holdTimer);
-  holdSecondsLeft = potatoMaxHoldSeconds;
-  updateHoldTimerDisplay();
-  holdTimer = setInterval(() => {
-    holdSecondsLeft--;
-    updateHoldTimerDisplay();
-    if(holdSecondsLeft <= 0) {
-      passPotatoDueToTimeout();
+function closeTriviaModal() {
+  triviaModal.style.display = "none";
+  triviaQuestionEl.textContent = "";
+  triviaAnswersEl.innerHTML = "";
+  triviaFeedbackEl.textContent = "";
+  if(triviaTimer) {
+    clearTimeout(triviaTimer);
+    triviaTimer = null;
+  }
+}
+
+async function fetchTriviaQuestion() {
+  try {
+    const response = await fetch('https://opentdb.com/api.php?amount=1&type=multiple');
+    const data = await response.json();
+    if (data.response_code === 0 && data.results.length > 0) {
+      const question = data.results[0];
+      const decodeHTML = (str) => {
+        const textarea = document.createElement("textarea");
+        textarea.innerHTML = str;
+        return textarea.value;
+      };
+      triviaQuestion = {
+        question: decodeHTML(question.question),
+        correctAnswer: decodeHTML(question.correct_answer),
+        incorrectAnswers: question.incorrect_answers.map(decodeHTML),
+      };
+      return triviaQuestion;
+    } else {
+      throw new Error("Failed to fetch trivia question");
     }
-  }, 1000);
+  } catch (e) {
+    console.error("Error fetching trivia question:", e);
+    setStatus("Error fetching trivia question. Try again.");
+    return null;
+  }
 }
 
-function updateHoldTimerDisplay() {
-  potatoTimerDisplay.textContent = `Pass potato in: ${holdSecondsLeft}s`;
+async function showTriviaModal() {
+  closeTriviaModal();
+  const questionData = await fetchTriviaQuestion();
+  if (!questionData) return;
+
+  triviaQuestionEl.textContent = questionData.question;
+  const allAnswers = [...questionData.incorrectAnswers, questionData.correctAnswer];
+  allAnswers.sort(() => Math.random() - 0.5);
+  triviaAnswersEl.innerHTML = "";
+  allAnswers.forEach(answer => {
+    const btn = document.createElement("button");
+    btn.className = "answerBtn";
+    btn.textContent = answer;
+    btn.onclick = () => handleTriviaAnswer(answer, questionData.correctAnswer);
+    triviaAnswersEl.appendChild(btn);
+  });
+  triviaModal.style.display = "flex";
 }
 
-function stopHoldTimer() {
-  if(holdTimer) {
-    clearInterval(holdTimer);
-    holdTimer = null;
-    potatoTimerDisplay.textContent = "";
+async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
+  if (selectedAnswer === correctAnswer) {
+    triviaFeedbackEl.textContent = "Correct!";
+    const gameRef = doc(db, "games", gameId);
+    try {
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(gameRef);
+        if (!snap.exists()) {
+          throw new Error("Game document does not exist");
+        }
+        const game = snap.data();
+        const alivePlayers = game.players.filter(p => p.alive && p.id !== playerId);
+        if (alivePlayers.length === 0) {
+          setStatus("No other players available!");
+          return;
+        }
+        const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+        transaction.update(gameRef, {
+          potatoHolder: newHolder
+        });
+      });
+      closeTriviaModal();
+    } catch (e) {
+      console.error("Transaction failed:", e);
+      setStatus("Error passing potato. Please try again.");
+    }
+  } else {
+    triviaFeedbackEl.textContent = "Incorrect, try again!";
+    triviaTimer = setTimeout(async () => {
+      await showTriviaModal();
+    }, 3000);
   }
 }
 
@@ -323,73 +421,8 @@ startBtn.addEventListener("click", async () => {
     lyricIndex: 0
   });
   lyricIndex = 0;
-  playerClicks = 0;
   setStatus("Game started!");
 });
-
-passBtn.addEventListener("click", async () => {
-  if (potatoHolder !== playerId) return;
-  const gameRef = doc(db, "games", gameId);
-  try {
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(gameRef);
-      if (!snap.exists()) {
-        throw new Error("Game document does not exist");
-      }
-      const game = snap.data();
-      const alivePlayers = game.players.filter(p => p.alive && p.id !== playerId);
-      if (alivePlayers.length === 0) {
-        playerClicks = 0;
-        setStatus("No other players available!");
-        return;
-      }
-      playerClicks++;
-      if (playerClicks >= clicksToPass) {
-        const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-        transaction.update(gameRef, {
-          potatoHolder: newHolder
-        });
-        playerClicks = 0;
-        resetHoldTimer();
-      }
-    });
-    clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
-  } catch (e) {
-    console.error("Transaction failed:", e);
-    setStatus("Error passing potato. Please try again.");
-  }
-});
-
-async function passPotatoDueToTimeout() {
-  const gameRef = doc(db, "games", gameId);
-  try {
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(gameRef);
-      if (!snap.exists()) {
-        throw new Error("Game document does not exist");
-      }
-      const game = snap.data();
-      if (game.potatoHolder !== playerId) return;
-
-      const alivePlayers = game.players.filter(p => p.alive && p.id !== playerId);
-      if (alivePlayers.length === 0) {
-        setStatus("No other players available!");
-        return;
-      }
-
-      const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-      transaction.update(gameRef, {
-        potatoHolder: newHolder
-      });
-      playerClicks = 0;
-      resetHoldTimer();
-    });
-    clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
-  } catch (e) {
-    console.error("Transaction failed:", e);
-    setStatus("Error passing potato due to timeout. Please try again.");
-  }
-}
 
 function listenForGameUpdates() {
   if (!gameId) return;
@@ -428,11 +461,7 @@ function listenForGameUpdates() {
       lobbyArea.style.display = "block";
       potatoStatus.textContent = "Waiting for game to start...";
       lyricDisplay.textContent = "";
-      clicksDisplay.textContent = "";
-      potatoTimerDisplay.textContent = "";
-      playerClicks = 0;
-      stopHoldTimer();
-      passBtn.style.display = "none";
+      closeTriviaModal();
       if(lyricTimer) {
         clearInterval(lyricTimer);
         lyricTimer = null;
@@ -447,19 +476,13 @@ function listenForGameUpdates() {
 
       if (potatoHolder === playerId) {
         if (prevPotatoHolder !== potatoHolder) {
-          playerClicks = 0;
-          clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
-          resetHoldTimer();
+          showTriviaModal();
         }
-        potatoStatus.textContent = "You have the potato!";
-        clicksDisplay.textContent = `Your clicks: ${playerClicks}/${clicksToPass}`;
-        passBtn.style.display = "inline-block";
+        potatoStatus.textContent = "You have the potato! Answer the trivia question.";
       } else {
         const holderName = (game.players.find(p => p.id === potatoHolder) || {}).name || "Someone";
         potatoStatus.textContent = `${holderName} has the potato`;
-        clicksDisplay.textContent = "";
-        passBtn.style.display = "none";
-        stopHoldTimer();
+        closeTriviaModal();
       }
       prevPotatoHolder = potatoHolder;
 
@@ -468,6 +491,7 @@ function listenForGameUpdates() {
       const me = game.players.find(p => p.id === playerId);
       if (!me || !me.alive) {
         alert("You are out!");
+        closeTriviaModal();
         await leaveGame();
       }
 
@@ -614,11 +638,8 @@ async function leaveGame() {
   lobbyArea.style.display = "block";
   potatoStatus.textContent = "Waiting for game to start...";
   lyricDisplay.textContent = "";
-  clicksDisplay.textContent = "";
-  potatoTimerDisplay.textContent = "";
-  passBtn.style.display = "none";
   setStatus("");
-  stopHoldTimer();
+  closeTriviaModal();
   if (lyricTimer) {
     clearInterval(lyricTimer);
     lyricTimer = null;
