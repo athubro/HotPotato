@@ -132,6 +132,12 @@
     font-weight: bold;
     font-size: 14px;
   }
+  #triviaTimer {
+    margin-bottom: 10px;
+    font-weight: bold;
+    font-size: 14px;
+    color: #ffd700;
+  }
 </style>
 </head>
 <body>
@@ -156,6 +162,7 @@
 
 <div id="triviaModal">
   <div id="triviaContent">
+    <div id="triviaTimer"></div>
     <div id="triviaQuestion"></div>
     <div id="triviaAnswers"></div>
     <div id="triviaFeedback"></div>
@@ -202,6 +209,7 @@ let gameUnsub = null;
 let lyricTimer = null;
 let triviaQuestion = null;
 let triviaTimer = null;
+let questionTimer = null;
 
 const usernameInput = document.getElementById("username");
 const joinBtn = document.getElementById("joinGame");
@@ -218,6 +226,7 @@ const triviaModal = document.getElementById("triviaModal");
 const triviaQuestionEl = document.getElementById("triviaQuestion");
 const triviaAnswersEl = document.getElementById("triviaAnswers");
 const triviaFeedbackEl = document.getElementById("triviaFeedback");
+const triviaTimerEl = document.getElementById("triviaTimer");
 
 if(playerId && playerName && gameId) {
   usernameInput.value = playerName;
@@ -239,9 +248,14 @@ function closeTriviaModal() {
   triviaQuestionEl.textContent = "";
   triviaAnswersEl.innerHTML = "";
   triviaFeedbackEl.textContent = "";
+  triviaTimerEl.textContent = "";
   if(triviaTimer) {
     clearTimeout(triviaTimer);
     triviaTimer = null;
+  }
+  if(questionTimer) {
+    clearInterval(questionTimer);
+    questionTimer = null;
   }
 }
 
@@ -300,10 +314,35 @@ async function showTriviaModal() {
     btn.onclick = () => handleTriviaAnswer(answer, questionData.correctAnswer);
     triviaAnswersEl.appendChild(btn);
   });
+
+  // Start 5-second timer
+  let timeLeft = 5;
+  triviaTimerEl.textContent = `Time left: ${timeLeft}s`;
+  questionTimer = setInterval(() => {
+    timeLeft -= 1;
+    triviaTimerEl.textContent = `Time left: ${timeLeft}s`;
+    if (timeLeft <= 0) {
+      clearInterval(questionTimer);
+      questionTimer = null;
+      triviaFeedbackEl.textContent = "Time's up, moving on...";
+      const buttons = triviaAnswersEl.querySelectorAll(".answerBtn");
+      buttons.forEach(btn => btn.disabled = true);
+      triviaTimer = setTimeout(async () => {
+        await showTriviaModal();
+      }, 3000);
+    }
+  }, 1000);
+
   triviaModal.style.display = "flex";
 }
 
 async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
+  // Clear question timer on any answer
+  if (questionTimer) {
+    clearInterval(questionTimer);
+    questionTimer = null;
+  }
+
   if (selectedAnswer === correctAnswer) {
     triviaFeedbackEl.textContent = "Correct!";
     const gameRef = doc(db, "games", gameId);
@@ -334,7 +373,6 @@ async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
     }
   } else {
     triviaFeedbackEl.textContent = "Incorrect, moving on...";
-    // Disable all answer buttons
     const buttons = triviaAnswersEl.querySelectorAll(".answerBtn");
     buttons.forEach(btn => btn.disabled = true);
     triviaTimer = setTimeout(async () => {
