@@ -89,34 +89,36 @@
   #triviaModal {
     display: none;
     position: fixed;
-    top: 0;
-    left: 0;
+    top: 10%;
+    left: 50%;
+    transform: translateX(-50%);
     width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.7);
+    max-width: 400px;
+    background: transparent;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     z-index: 1000;
   }
   #triviaContent {
-    background: #ff4500;
-    padding: 20px;
+    background: rgba(255, 69, 0, 0.9);
+    padding: 15px;
     border-radius: 10px;
-    max-width: 500px;
-    width: 90%;
+    width: 100%;
     text-align: center;
     color: #fff;
     border: 2px solid #ffd700;
   }
   #triviaQuestion {
-    font-size: 18px;
-    margin-bottom: 20px;
+    font-size: 16px;
+    margin-bottom: 15px;
   }
   .answerBtn {
     display: block;
     width: 80%;
-    margin: 10px auto;
+    margin: 8px auto;
     background: #ff6347;
+    padding: 8px;
+    font-size: 14px;
   }
   .answerBtn:hover {
     background: #cc0000;
@@ -124,6 +126,7 @@
   #triviaFeedback {
     margin-top: 10px;
     font-weight: bold;
+    font-size: 14px;
   }
 </style>
 </head>
@@ -238,9 +241,12 @@ function closeTriviaModal() {
   }
 }
 
-async function fetchTriviaQuestion() {
+async function fetchTriviaQuestion(attempt = 1, maxAttempts = 3) {
   try {
     const response = await fetch('https://opentdb.com/api.php?amount=1&type=multiple');
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
     const data = await response.json();
     if (data.response_code === 0 && data.results.length > 0) {
       const question = data.results[0];
@@ -256,12 +262,20 @@ async function fetchTriviaQuestion() {
       };
       return triviaQuestion;
     } else {
-      throw new Error("Failed to fetch trivia question");
+      throw new Error("Invalid API response");
     }
   } catch (e) {
-    console.error("Error fetching trivia question:", e);
-    setStatus("Error fetching trivia question. Try again.");
-    return null;
+    console.error(`Error fetching trivia question (attempt ${attempt}):`, e);
+    if (attempt < maxAttempts) {
+      setStatus(`Retrying trivia fetch (${attempt}/${maxAttempts})...`);
+      return fetchTriviaQuestion(attempt + 1, maxAttempts);
+    }
+    setStatus("Failed to fetch trivia question. Using fallback.");
+    return {
+      question: "What is the capital city of France?",
+      correctAnswer: "Paris",
+      incorrectAnswers: ["London", "Berlin", "Madrid"]
+    };
   }
 }
 
@@ -295,12 +309,15 @@ async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
           throw new Error("Game document does not exist");
         }
         const game = snap.data();
-        const alivePlayers = game.players.filter(p => p.alive && p.id !== playerId);
+        const alivePlayers = game.players && Array.isArray(game.players)
+          ? game.players.filter(p => p.alive && p.id !== playerId)
+          : [];
         if (alivePlayers.length === 0) {
           setStatus("No other players available!");
           return;
         }
         const newHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
+        console.log("Passing potato to:", newHolder);
         transaction.update(gameRef, {
           potatoHolder: newHolder
         });
@@ -409,7 +426,9 @@ startBtn.addEventListener("click", async () => {
   const snap = await getDoc(gameRef);
   if (!snap.exists()) return;
   const game = snap.data();
-  const alivePlayers = game.players.filter(p => p.alive);
+  const alivePlayers = game.players && Array.isArray(game.players)
+    ? game.players.filter(p => p.alive)
+    : [];
   if (alivePlayers.length < 2) {
     alert("Need at least 2 players to start.");
     return;
@@ -439,8 +458,10 @@ function listenForGameUpdates() {
     const game = snap.data();
 
     // If no valid host or host is not alive, assign first alive player as host
-    if (!game.host || !game.players.some(p => p.id === game.host && p.alive)) {
-      const firstAlive = game.players.find(p => p.alive);
+    if (!game.host || !(game.players && Array.isArray(game.players) && game.players.some(p => p.id === game.host && p.alive))) {
+      const firstAlive = game.players && Array.isArray(game.players)
+        ? game.players.find(p => p.alive)
+        : null;
       if (firstAlive) {
         try {
           await updateDoc(gameRef, { host: firstAlive.id });
@@ -453,10 +474,10 @@ function listenForGameUpdates() {
       isHost = (game.host === playerId);
     }
 
-    renderPlayers(game.players, game.host);
+    renderPlayers(game.players || [], game.host);
 
     if (game.state === "lobby") {
-      setStartButton(isHost && game.players.filter(p => p.alive).length >= 2);
+      setStartButton(isHost && (game.players || []).filter(p => p.alive).length >= 2);
       gameArea.style.display = "none";
       lobbyArea.style.display = "block";
       potatoStatus.textContent = "Waiting for game to start...";
@@ -480,15 +501,15 @@ function listenForGameUpdates() {
         }
         potatoStatus.textContent = "You have the potato! Answer the trivia question.";
       } else {
-        const holderName = (game.players.find(p => p.id === potatoHolder) || {}).name || "Someone";
+        const holderName = (game.players && game.players.find(p => p.id === potatoHolder) || {}).name || "Someone";
         potatoStatus.textContent = `${holderName} has the potato`;
         closeTriviaModal();
       }
       prevPotatoHolder = potatoHolder;
 
-      renderDiagram(game.players, game.potatoHolder);
+      renderDiagram(game.players || [], game.potatoHolder);
 
-      const me = game.players.find(p => p.id === playerId);
+      const me = game.players && game.players.find(p => p.id === playerId);
       if (!me || !me.alive) {
         alert("You are out!");
         closeTriviaModal();
@@ -508,9 +529,9 @@ function listenForGameUpdates() {
               let updates = { lyricIndex: newIndex };
 
               if (newIndex === outIndex) {
-                const playersUpdated = game.players.map(p =>
-                  p.id === game.potatoHolder ? { ...p, alive: false } : p
-                );
+                const playersUpdated = game.players && Array.isArray(game.players)
+                  ? game.players.map(p => p.id === game.potatoHolder ? { ...p, alive: false } : p)
+                  : [];
                 updates.players = playersUpdated;
                 const alivePlayers = playersUpdated.filter(p => p.alive);
                 if (alivePlayers.length <= 1) {
@@ -529,7 +550,7 @@ function listenForGameUpdates() {
         }, 2000);
       }
     } else if (game.state === "ended") {
-      const me = game.players.find(p => p.id === playerId);
+      const me = game.players && game.players.find(p => p.id === playerId);
       if (me && me.alive) {
         alert("You win!");
       } else {
@@ -613,16 +634,18 @@ async function leaveGame() {
   const gameRef = doc(db, "games", gameId);
   try {
     const snap = await getDoc(gameRef);
-    if (!snap.exists()) return;
-    const game = snap.data();
-    const newPlayers = game.players.filter(p => p.id !== playerId);
-    await updateDoc(gameRef, { players: newPlayers });
-
-    if (game.host === playerId && newPlayers.length > 0) {
-      await updateDoc(gameRef, { host: newPlayers[0].id });
+    if (snap.exists()) {
+      const game = snap.data();
+      if (game.players && Array.isArray(game.players)) {
+        const newPlayers = game.players.filter(p => p.id !== playerId);
+        await updateDoc(gameRef, { players: newPlayers });
+        if (game.host === playerId && newPlayers.length > 0) {
+          await updateDoc(gameRef, { host: newPlayers[0].id });
+        }
+      }
     }
   } catch (e) {
-    console.error(e);
+    console.error("Error in leaveGame:", e);
   }
   localStorage.removeItem('playerId');
   localStorage.removeItem('playerName');
