@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Hot Potato Online</title>
+<title>Hot Potato Trivia Game</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -328,7 +328,7 @@ async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
       setStatus("Error passing potato. Please try again.");
     }
   } else {
-    triviaFeedbackEl.textContent = "Moving on...";
+    triviaFeedbackEl.textContent = "Incorrect, moving on...";
     triviaTimer = setTimeout(async () => {
       await showTriviaModal();
     }, 3000);
@@ -571,7 +571,6 @@ function listenForGameUpdates() {
           setStatus("Error resetting game room.");
         }
       }
-      // Do not call leaveGame to allow players to stay in the room
       gameArea.style.display = "none";
       lobbyArea.style.display = "block";
       potatoStatus.textContent = "Waiting for game to start...";
@@ -664,7 +663,7 @@ async function leaveGame() {
   }
   localStorage.removeItem('playerId');
   localStorage.removeItem('playerName');
-  // Do not remove gameId to allow rejoining the same room
+  // Keep gameId to allow rejoining the same room
   playerId = null;
   playerName = "";
   joined = false;
