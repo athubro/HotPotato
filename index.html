@@ -197,6 +197,7 @@ const lyrics = [
   "if", "you", "have", "the", "Potato", "you", "are", "out!"
 ];
 const outIndex = lyrics.indexOf("out!");
+const MAX_PLAYERS = 8;
 
 let gameId = localStorage.getItem('gameId') || null;
 let playerId = localStorage.getItem('playerId') || null;
@@ -399,29 +400,33 @@ joinBtn.addEventListener("click", async () => {
   let gameRef = doc(db, "games", targetGameId);
   let snap = await getDoc(gameRef);
 
-  if (snap.exists() && snap.data().state === "playing") {
-    setStatus("Main room in progress. Searching for an open lobby...");
-    const gamesRef = collection(db, "games");
-    const q = query(gamesRef, where("state", "==", "lobby"));
-    const querySnapshot = await getDocs(q);
-    let foundLobby = false;
-
-    for (const doc of querySnapshot.docs) {
-      if (doc.id !== 'main-room') {
-        targetGameId = doc.id;
-        gameRef = doc(db, "games", targetGameId);
-        snap = await getDoc(gameRef);
-        foundLobby = true;
-        setStatus(`Joining existing lobby: ${targetGameId}`);
-        break;
-      }
-    }
-
-    if (!foundLobby) {
-      setStatus("No open lobbies found. Creating new lobby.");
-      targetGameId = `room-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  // Check if main-room is full or playing
+  if (snap.exists()) {
+    const gameData = snap.data();
+    const playerCount = gameData.players && Array.isArray(gameData.players) ? gameData.players.length : 0;
+    if (playerCount >= MAX_PLAYERS || gameData.state === "playing") {
+      setStatus("Main room is full or in progress. Trying game-2...");
+      targetGameId = 'game-2';
       gameRef = doc(db, "games", targetGameId);
       snap = await getDoc(gameRef);
+
+      // Check if game-2 is full or playing
+      if (snap.exists()) {
+        const game2Data = snap.data();
+        const game2PlayerCount = game2Data.players && Array.isArray(game2Data.players) ? game2Data.players.length : 0;
+        if (game2PlayerCount >= MAX_PLAYERS || game2Data.state === "playing") {
+          setStatus("Game-2 is full or in progress. Creating new lobby...");
+          targetGameId = `room-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          gameRef = doc(db, "games", targetGameId);
+          snap = await getDoc(gameRef);
+        } else {
+          setStatus(`Joining game-2...`);
+        }
+      } else {
+        setStatus(`Game-2 does not exist. Creating game-2...`);
+      }
+    } else {
+      setStatus(`Joining main-room...`);
     }
   }
 
@@ -524,7 +529,7 @@ function listenForGameUpdates() {
     renderPlayers(game.players || [], game.host);
 
     if (game.state === "lobby") {
-      setStartButton(isHost && (game.players || []).filter(p => p.alive).length >= 2);
+      setStartButton(isHost && (game.players || []).filter(p => p.alive).length >= 2 && (game.players || []).length <= MAX_PLAYERS);
       gameArea.style.display = "none";
       lobbyArea.style.display = "block";
       potatoStatus.textContent = "Waiting for game to start...";
@@ -653,7 +658,7 @@ function renderPlayers(players, hostId) {
 
     playerListEl.appendChild(div);
   });
-  setStartButton(isHost && players.filter(p => p.alive).length >= 2);
+  setStartButton(isHost && players.filter(p => p.alive).length >= 2 && players.length <= MAX_PLAYERS);
 }
 
 function renderDiagram(players, holder) {
