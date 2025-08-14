@@ -87,7 +87,7 @@
     max-width: 200px;
     margin-bottom: 20px;
   }
-  #triviaModal {
+  #triviaModal, #joinPrivateModal, #createPrivateModal {
     display: none;
     position: fixed;
     top: 10%;
@@ -100,7 +100,7 @@
     align-items: flex-start;
     z-index: 1000;
   }
-  #triviaContent {
+  #triviaContent, #joinPrivateContent, #createPrivateContent {
     background: rgba(255, 69, 0, 0.9);
     padding: 15px;
     border-radius: 10px;
@@ -139,6 +139,21 @@
     font-size: 14px;
     color: #ffd700;
   }
+  input[type="text"] {
+    padding: 8px;
+    margin: 10px 0;
+    width: 80%;
+    border: 1px solid #ffd700;
+    border-radius: 5px;
+    font-size: 14px;
+    background: #fff;
+    color: #333;
+  }
+  .modal-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+  }
 </style>
 </head>
 <body>
@@ -149,7 +164,9 @@
 
 <div id="lobbyArea">
   <input type="text" id="username" placeholder="Enter your name" />
-  <button id="joinGame">Join Game</button>
+  <button id="joinGame">Join Public Game</button>
+  <button id="joinPrivateGame">Join Private Game</button>
+  <button id="createPrivateGame">Create Private Game</button>
   <button id="leaveGame">Leave Game</button>
   <div id="playerList"></div>
   <button id="startGame">Start Game</button>
@@ -167,6 +184,28 @@
     <div id="triviaQuestion"></div>
     <div id="triviaAnswers"></div>
     <div id="triviaFeedback"></div>
+  </div>
+</div>
+
+<div id="joinPrivateModal">
+  <div id="joinPrivateContent">
+    <h2>Join Private Game</h2>
+    <input type="text" id="joinPasswordInput" placeholder="Enter game password" />
+    <div class="modal-buttons">
+      <button id="joinPrivateSubmit">Submit</button>
+      <button id="joinPrivateCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="createPrivateModal">
+  <div id="createPrivateContent">
+    <h2>Create Private Game</h2>
+    <input type="text" id="createPasswordInput" placeholder="Enter new game password" />
+    <div class="modal-buttons">
+      <button id="createPrivateSubmit">Submit</button>
+      <button id="createPrivateCancel">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -215,6 +254,8 @@ let questionTimer = null;
 
 const usernameInput = document.getElementById("username");
 const joinBtn = document.getElementById("joinGame");
+const joinPrivateBtn = document.getElementById("joinPrivateGame");
+const createPrivateBtn = document.getElementById("createPrivateGame");
 const leaveBtn = document.getElementById("leaveGame");
 const startBtn = document.getElementById("startGame");
 const playerListEl = document.getElementById("playerList");
@@ -229,11 +270,21 @@ const triviaQuestionEl = document.getElementById("triviaQuestion");
 const triviaAnswersEl = document.getElementById("triviaAnswers");
 const triviaFeedbackEl = document.getElementById("triviaFeedback");
 const triviaTimerEl = document.getElementById("triviaTimer");
+const joinPrivateModal = document.getElementById("joinPrivateModal");
+const joinPasswordInput = document.getElementById("joinPasswordInput");
+const joinPrivateSubmit = document.getElementById("joinPrivateSubmit");
+const joinPrivateCancel = document.getElementById("joinPrivateCancel");
+const createPrivateModal = document.getElementById("createPrivateModal");
+const createPasswordInput = document.getElementById("createPasswordInput");
+const createPrivateSubmit = document.getElementById("createPrivateSubmit");
+const createPrivateCancel = document.getElementById("createPrivateCancel");
 
 if(playerId && playerName && gameId) {
   usernameInput.value = playerName;
   joined = true;
   joinBtn.style.display = "none";
+  joinPrivateBtn.style.display = "none";
+  createPrivateBtn.style.display = "none";
   leaveBtn.style.display = "inline-block";
   roomDisplay.textContent = gameId;
   listenForGameUpdates();
@@ -259,6 +310,16 @@ function closeTriviaModal() {
     clearInterval(questionTimer);
     questionTimer = null;
   }
+}
+
+function closeJoinPrivateModal() {
+  joinPrivateModal.style.display = "none";
+  joinPasswordInput.value = "";
+}
+
+function closeCreatePrivateModal() {
+  createPrivateModal.style.display = "none";
+  createPasswordInput.value = "";
 }
 
 async function fetchTriviaQuestion(attempt = 1, maxAttempts = 3) {
@@ -312,12 +373,11 @@ async function showTriviaModal() {
     const btn = document.createElement("button");
     btn.className = "answerBtn";
     btn.textContent = answer;
-    btn.disabled = false; // Ensure buttons are enabled for new question
+    btn.disabled = false;
     btn.onclick = () => handleTriviaAnswer(answer, questionData.correctAnswer);
     triviaAnswersEl.appendChild(btn);
   });
 
-  // Start 5-second timer
   let timeLeft = 5;
   triviaTimerEl.textContent = `Time left: ${timeLeft}s`;
   questionTimer = setInterval(() => {
@@ -339,7 +399,6 @@ async function showTriviaModal() {
 }
 
 async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
-  // Clear question timer on any answer
   if (questionTimer) {
     clearInterval(questionTimer);
     questionTimer = null;
@@ -400,7 +459,6 @@ joinBtn.addEventListener("click", async () => {
   let gameRef = doc(db, "games", targetGameId);
   let snap = await getDoc(gameRef);
 
-  // Check if main-room is full or playing
   if (snap.exists()) {
     const gameData = snap.data();
     const playerCount = gameData.players && Array.isArray(gameData.players) ? gameData.players.length : 0;
@@ -410,7 +468,6 @@ joinBtn.addEventListener("click", async () => {
       gameRef = doc(db, "games", targetGameId);
       snap = await getDoc(gameRef);
 
-      // Check if game-2 is full or playing
       if (snap.exists()) {
         const game2Data = snap.data();
         const game2PlayerCount = game2Data.players && Array.isArray(game2Data.players) ? game2Data.players.length : 0;
@@ -454,6 +511,8 @@ joinBtn.addEventListener("click", async () => {
     roomDisplay.textContent = gameId;
     joined = true;
     joinBtn.style.display = "none";
+    joinPrivateBtn.style.display = "none";
+    createPrivateBtn.style.display = "none";
     leaveBtn.style.display = "inline-block";
     listenForGameUpdates();
     setStatus("Joined game lobby.");
@@ -461,6 +520,148 @@ joinBtn.addEventListener("click", async () => {
     console.error(err);
     setStatus("Error joining game.");
   }
+});
+
+joinPrivateBtn.addEventListener("click", () => {
+  if(joined) return;
+  playerName = usernameInput.value.trim();
+  if(!playerName) {
+    alert("Please enter your name!");
+    return;
+  }
+  if(playerId) {
+    alert("You have already joined the game on this device.");
+    return;
+  }
+  joinPrivateModal.style.display = "flex";
+});
+
+joinPrivateSubmit.addEventListener("click", async () => {
+  const password = joinPasswordInput.value.trim();
+  if (!password) {
+    setStatus("Password is required.");
+    return;
+  }
+
+  playerId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const targetGameId = password;
+  const gameRef = doc(db, "games", targetGameId);
+  const snap = await getDoc(gameRef);
+
+  if (!snap.exists()) {
+    setStatus("Invalid password.");
+    closeJoinPrivateModal();
+    return;
+  }
+
+  const gameData = snap.data();
+  const playerCount = gameData.players && Array.isArray(gameData.players) ? gameData.players.length : 0;
+  if (gameData.state !== "lobby") {
+    setStatus("Game has expired.");
+    closeJoinPrivateModal();
+    return;
+  }
+  if (playerCount >= MAX_PLAYERS) {
+    setStatus("Game is full.");
+    closeJoinPrivateModal();
+    return;
+  }
+
+  try {
+    isHost = (gameData.host === playerId);
+    await updateDoc(gameRef, {
+      players: arrayUnion({ id: playerId, name: playerName, alive: true })
+    });
+    localStorage.setItem('playerId', playerId);
+    localStorage.setItem('playerName', playerName);
+    localStorage.setItem('gameId', targetGameId);
+    gameId = targetGameId;
+    roomDisplay.textContent = gameId;
+    joined = true;
+    joinBtn.style.display = "none";
+    joinPrivateBtn.style.display = "none";
+    createPrivateBtn.style.display = "none";
+    leaveBtn.style.display = "inline-block";
+    listenForGameUpdates();
+    setStatus("Joined private game lobby.");
+    closeJoinPrivateModal();
+  } catch (err) {
+    console.error(err);
+    setStatus("Error joining private game.");
+    closeJoinPrivateModal();
+  }
+});
+
+joinPrivateCancel.addEventListener("click", () => {
+  closeJoinPrivateModal();
+});
+
+createPrivateBtn.addEventListener("click", () => {
+  if(joined) return;
+  playerName = usernameInput.value.trim();
+  if(!playerName) {
+    alert("Please enter your name!");
+    return;
+  }
+  if(playerId) {
+    alert("You have already joined the game on this device.");
+    return;
+  }
+  createPrivateModal.style.display = "flex";
+});
+
+createPrivateSubmit.addEventListener("click", async () => {
+  const password = createPasswordInput.value.trim();
+  if (!password) {
+    setStatus("Password is required.");
+    return;
+  }
+
+  playerId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const targetGameId = password;
+  const gameRef = doc(db, "games", targetGameId);
+  const snap = await getDoc(gameRef);
+
+  if (snap.exists()) {
+    setStatus("A game with this password already exists.");
+    closeCreatePrivateModal();
+    return;
+  }
+
+  try {
+    await setDoc(gameRef, {
+      players: [],
+      state: "lobby",
+      host: playerId,
+      potatoHolder: null,
+      lyricIndex: 0
+    });
+    isHost = true;
+    await updateDoc(gameRef, {
+      players: arrayUnion({ id: playerId, name: playerName, alive: true })
+    });
+    localStorage.setItem('playerId', playerId);
+    localStorage.setItem('playerName', playerName);
+    localStorage.setItem('gameId', targetGameId);
+    gameId = targetGameId;
+    roomDisplay.textContent = gameId;
+    joined = true;
+    joinBtn.style.display = "none";
+    joinPrivateBtn.style.display = "none";
+    createPrivateBtn.style.display = "none";
+    leaveBtn.style.display = "inline-block";
+    listenForGameUpdates();
+    setStatus("Created and joined private game lobby.");
+    closeCreatePrivateModal();
+  } catch (err) {
+    console.error(err);
+    setStatus("Error creating private game.");
+    closeCreatePrivateModal();
+  }
+});
+
+createPrivateCancel.addEventListener("click", () => {
+  closeCreatePrivateModal();
 });
 
 leaveBtn.addEventListener("click", async () => {
@@ -509,7 +710,6 @@ function listenForGameUpdates() {
     }
     const game = snap.data();
 
-    // If no valid host or host is not alive, assign first alive player as host
     if (!game.host || !(game.players && Array.isArray(game.players) && game.players.some(p => p.id === game.host && p.alive))) {
       const firstAlive = game.players && Array.isArray(game.players)
         ? game.players.find(p => p.alive)
@@ -720,6 +920,8 @@ async function leaveGame() {
   playerName = "";
   joined = false;
   joinBtn.style.display = "inline-block";
+  joinPrivateBtn.style.display = "inline-block";
+  createPrivateBtn.style.display = "inline-block";
   leaveBtn.style.display = "none";
   setStartButton(false);
   gameArea.style.display = "none";
@@ -728,6 +930,8 @@ async function leaveGame() {
   lyricDisplay.textContent = "";
   setStatus("");
   closeTriviaModal();
+  closeJoinPrivateModal();
+  closeCreatePrivateModal();
   if (lyricTimer) {
     clearInterval(lyricTimer);
     lyricTimer = null;
