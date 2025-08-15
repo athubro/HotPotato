@@ -337,6 +337,7 @@ function closeCreatePrivateModal() {
 function resetVideo() {
   hotSongVideo.pause();
   hotSongVideo.currentTime = 0;
+  hotSongVideo.playbackRate = 0.7;
 }
 
 async function fetchTriviaQuestion(attempt = 1, maxAttempts = 3) {
@@ -718,6 +719,7 @@ function syncVideo(videoStartTime) {
     return;
   }
   const elapsed = (Date.now() - videoStartTime) / 1000; // Convert to seconds
+  hotSongVideo.playbackRate = 0.7; // Slow down to 0.7x speed
   hotSongVideo.currentTime = elapsed;
   hotSongVideo.play().catch(e => console.error("Video play failed:", e));
 }
@@ -937,8 +939,8 @@ async function leaveGame() {
   playerName = "";
   joined = false;
   joinBtn.style.display = "inline-block";
-  joinPrivateBtn.style.display = "none";
-  createPrivateBtn.style.display = "none";
+  joinPrivateBtn.style.display = "inline-block";
+  createPrivateBtn.style.display = "inline-block";
   leaveBtn.style.display = "none";
   setStartButton(false);
   gameArea.style.display = "none";
