@@ -77,11 +77,12 @@
     opacity: 0.5;
     text-decoration: line-through;
   }
-  #lyricDisplay {
-    font-size: 24px;
-    font-weight: bold;
+  #hotSongVideo {
+    width: 100%;
+    max-width: 400px;
     margin: 20px 0;
-    color: #ffd700;
+    border: 2px solid #ffd700;
+    border-radius: 8px;
   }
   #potatoStatus {
     margin-bottom: 10px;
@@ -192,7 +193,7 @@
 
 <div id="gameArea">
   <div id="potatoStatus">Waiting for game to start...</div>
-  <div id="lyricDisplay"></div>
+  <video id="hotSongVideo" src="hotsong.mp4"></video>
   <div id="playerDiagram"></div>
 </div>
 
@@ -249,11 +250,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-const lyrics = [
-  "hot", "potato", "hot", "potato", "hot", "potato", "hot", "potato",
-  "if", "you", "have", "the", "Potato", "you", "are", "out!"
-];
-const outIndex = lyrics.indexOf("out!");
 const MAX_PLAYERS = 8;
 
 let gameId = localStorage.getItem('gameId') || null;
@@ -261,11 +257,9 @@ let playerId = localStorage.getItem('playerId') || null;
 let playerName = localStorage.getItem('playerName') || "";
 let potatoHolder = null;
 let prevPotatoHolder = null;
-let lyricIndex = 0;
 let isHost = false;
 let joined = false;
 let gameUnsub = null;
-let lyricTimer = null;
 let triviaQuestion = null;
 let triviaTimer = null;
 let questionTimer = null;
@@ -279,7 +273,7 @@ const startBtn = document.getElementById("startGame");
 const playerListEl = document.getElementById("playerList");
 const gameArea = document.getElementById("gameArea");
 const potatoStatus = document.getElementById("potatoStatus");
-const lyricDisplay = document.getElementById("lyricDisplay");
+const hotSongVideo = document.getElementById("hotSongVideo");
 const statusBar = document.getElementById("statusBar");
 const lobbyArea = document.getElementById("lobbyArea");
 const roomDisplay = document.getElementById("roomDisplay");
@@ -338,6 +332,11 @@ function closeJoinPrivateModal() {
 function closeCreatePrivateModal() {
   createPrivateModal.style.display = "none";
   createPasswordInput.value = "";
+}
+
+function resetVideo() {
+  hotSongVideo.pause();
+  hotSongVideo.currentTime = 0;
 }
 
 async function fetchTriviaQuestion(attempt = 1, maxAttempts = 3) {
@@ -511,8 +510,7 @@ joinBtn.addEventListener("click", async () => {
         players: [],
         state: "lobby",
         host: playerId,
-        potatoHolder: null,
-        lyricIndex: 0
+        potatoHolder: null
       });
       isHost = true;
     } else {
@@ -651,8 +649,7 @@ createPrivateSubmit.addEventListener("click", async () => {
       players: [],
       state: "lobby",
       host: playerId,
-      potatoHolder: null,
-      lyricIndex: 0
+      potatoHolder: null
     });
     isHost = true;
     await updateDoc(gameRef, {
@@ -707,10 +704,8 @@ startBtn.addEventListener("click", async () => {
   const randomHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
   await updateDoc(gameRef, {
     state: "playing",
-    potatoHolder: randomHolder,
-    lyricIndex: 0
+    potatoHolder: randomHolder
   });
-  lyricIndex = 0;
   setStatus("Game started!");
 });
 
@@ -751,19 +746,12 @@ function listenForGameUpdates() {
       gameArea.style.display = "none";
       lobbyArea.style.display = "block";
       potatoStatus.textContent = "Waiting for game to start...";
-      lyricDisplay.textContent = "";
+      resetVideo();
       closeTriviaModal();
-      if(lyricTimer) {
-        clearInterval(lyricTimer);
-        lyricTimer = null;
-      }
     } else if (game.state === "playing") {
       lobbyArea.style.display = "none";
       gameArea.style.display = "block";
       potatoHolder = game.potatoHolder;
-      lyricIndex = game.lyricIndex || 0;
-
-      lyricDisplay.textContent = lyrics[lyricIndex] || "";
 
       if (potatoHolder === playerId) {
         if (prevPotatoHolder !== potatoHolder) {
@@ -786,8 +774,9 @@ function listenForGameUpdates() {
         await leaveGame();
       }
 
-      if (isHost && !lyricTimer) {
-        lyricTimer = setInterval(async () => {
+      if (isHost) {
+        hotSongVideo.play().catch(e => console.error("Video play failed:", e));
+        hotSongVideo.onended = async () => {
           try {
             await runTransaction(db, async (transaction) => {
               const snap = await transaction.get(gameRef);
@@ -795,29 +784,27 @@ function listenForGameUpdates() {
               const game = snap.data();
               if (game.state !== "playing") return;
 
-              let newIndex = (game.lyricIndex + 1) % lyrics.length;
-              let updates = { lyricIndex: newIndex };
+              const playersUpdated = game.players && Array.isArray(game.players)
+                ? game.players.map(p => p.id === game.potatoHolder ? { ...p, alive: false } : p)
+                : [];
+              const alivePlayers = playersUpdated.filter(p => p.alive);
+              const updates = { players: playersUpdated };
 
-              if (newIndex === outIndex) {
-                const playersUpdated = game.players && Array.isArray(game.players)
-                  ? game.players.map(p => p.id === game.potatoHolder ? { ...p, alive: false } : p)
-                  : [];
-                updates.players = playersUpdated;
-                const alivePlayers = playersUpdated.filter(p => p.alive);
-                if (alivePlayers.length <= 1) {
-                  updates.state = "ended";
-                } else {
-                  updates.potatoHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-                  updates.lyricIndex = 0;
-                }
+              if (alivePlayers.length <= 1) {
+                updates.state = "ended";
+              } else {
+                updates.potatoHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
               }
 
               transaction.update(gameRef, updates);
             });
           } catch (e) {
-            console.error("Lyric transaction failed:", e);
+            console.error("Video end transaction failed:", e);
+            setStatus("Error processing elimination.");
           }
-        }, 2000);
+        };
+      } else {
+        resetVideo();
       }
     } else if (game.state === "ended") {
       const me = game.players && game.players.find(p => p.id === playerId);
@@ -832,8 +819,7 @@ function listenForGameUpdates() {
             players: [],
             state: "lobby",
             host: null,
-            potatoHolder: null,
-            lyricIndex: 0
+            potatoHolder: null
           });
           setStatus("Game room reset for new game.");
         } catch (e) {
@@ -844,12 +830,8 @@ function listenForGameUpdates() {
       gameArea.style.display = "none";
       lobbyArea.style.display = "block";
       potatoStatus.textContent = "Waiting for game to start...";
-      lyricDisplay.textContent = "";
+      resetVideo();
       closeTriviaModal();
-      if (lyricTimer) {
-        clearInterval(lyricTimer);
-        lyricTimer = null;
-      }
     }
     roomDisplay.textContent = gameId;
   });
@@ -945,15 +927,11 @@ async function leaveGame() {
   gameArea.style.display = "none";
   lobbyArea.style.display = "block";
   potatoStatus.textContent = "Waiting for game to start...";
-  lyricDisplay.textContent = "";
-  setStatus("");
+  resetVideo();
   closeTriviaModal();
   closeJoinPrivateModal();
   closeCreatePrivateModal();
-  if (lyricTimer) {
-    clearInterval(lyricTimer);
-    lyricTimer = null;
-  }
+  setStatus("");
   roomDisplay.textContent = gameId;
 }
 
