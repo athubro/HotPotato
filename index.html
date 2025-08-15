@@ -228,6 +228,10 @@
   </div>
 </div>
 
+<audio id="correctSound" src="correct.mp3"></audio>
+<audio id="wrongSound" src="wrong.mp3"></audio>
+<audio id="buttonSound" src="button.mp3"></audio>
+
 <div id="statusBar"></div>
 
 <script type="module">
@@ -290,6 +294,14 @@ const createPrivateModal = document.getElementById("createPrivateModal");
 const createPasswordInput = document.getElementById("createPasswordInput");
 const createPrivateSubmit = document.getElementById("createPrivateSubmit");
 const createPrivateCancel = document.getElementById("createPrivateCancel");
+const correctSound = document.getElementById("correctSound");
+const wrongSound = document.getElementById("wrongSound");
+const buttonSound = document.getElementById("buttonSound");
+
+function playSound(audioElement) {
+  audioElement.currentTime = 0; // Reset to start
+  audioElement.play().catch(e => console.error("Sound play failed:", e));
+}
 
 if(playerId && playerName && gameId) {
   usernameInput.value = playerName;
@@ -405,6 +417,7 @@ async function showTriviaModal() {
       clearInterval(questionTimer);
       questionTimer = null;
       triviaFeedbackEl.textContent = "Time's up, moving on...";
+      playSound(wrongSound);
       const buttons = triviaAnswersEl.querySelectorAll(".answerBtn");
       buttons.forEach(btn => btn.disabled = true);
       triviaTimer = setTimeout(async () => {
@@ -424,6 +437,7 @@ async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
 
   if (selectedAnswer === correctAnswer) {
     triviaFeedbackEl.textContent = "Correct!";
+    playSound(correctSound);
     const gameRef = doc(db, "games", gameId);
     try {
       await runTransaction(db, async (transaction) => {
@@ -452,6 +466,7 @@ async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
     }
   } else {
     triviaFeedbackEl.textContent = "Incorrect, moving on...";
+    playSound(wrongSound);
     const buttons = triviaAnswersEl.querySelectorAll(".answerBtn");
     buttons.forEach(btn => btn.disabled = true);
     triviaTimer = setTimeout(async () => {
@@ -461,6 +476,7 @@ async function handleTriviaAnswer(selectedAnswer, correctAnswer) {
 }
 
 joinBtn.addEventListener("click", async () => {
+  playSound(buttonSound);
   if(joined) return;
   playerName = usernameInput.value.trim();
   if(!playerName) {
@@ -541,6 +557,7 @@ joinBtn.addEventListener("click", async () => {
 });
 
 joinPrivateBtn.addEventListener("click", () => {
+  playSound(buttonSound);
   if(joined) return;
   playerName = usernameInput.value.trim();
   if(!playerName) {
@@ -555,6 +572,7 @@ joinPrivateBtn.addEventListener("click", () => {
 });
 
 joinPrivateSubmit.addEventListener("click", async () => {
+  playSound(buttonSound);
   const password = joinPasswordInput.value.trim();
   if (!password) {
     setStatus("Password is required.");
@@ -611,10 +629,12 @@ joinPrivateSubmit.addEventListener("click", async () => {
 });
 
 joinPrivateCancel.addEventListener("click", () => {
+  playSound(buttonSound);
   closeJoinPrivateModal();
 });
 
 createPrivateBtn.addEventListener("click", () => {
+  playSound(buttonSound);
   if(joined) return;
   playerName = usernameInput.value.trim();
   if(!playerName) {
@@ -629,6 +649,7 @@ createPrivateBtn.addEventListener("click", () => {
 });
 
 createPrivateSubmit.addEventListener("click", async () => {
+  playSound(buttonSound);
   const password = createPasswordInput.value.trim();
   if (!password) {
     setStatus("Password is required.");
@@ -679,15 +700,18 @@ createPrivateSubmit.addEventListener("click", async () => {
 });
 
 createPrivateCancel.addEventListener("click", () => {
+  playSound(buttonSound);
   closeCreatePrivateModal();
 });
 
 leaveBtn.addEventListener("click", async () => {
+  playSound(buttonSound);
   if(!joined) return;
   await leaveGame();
 });
 
 startBtn.addEventListener("click", async () => {
+  playSound(buttonSound);
   if (!joined) return;
   if (!isHost) {
     alert("Only the host can start the game.");
@@ -870,6 +894,7 @@ function renderPlayers(players, hostId) {
       leaveBtn.textContent = "Leave";
       leaveBtn.style.marginLeft = "8px";
       leaveBtn.onclick = async () => {
+        playSound(buttonSound);
         await leaveGame();
       };
       div.appendChild(leaveBtn);
