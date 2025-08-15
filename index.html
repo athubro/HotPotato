@@ -510,7 +510,8 @@ joinBtn.addEventListener("click", async () => {
         players: [],
         state: "lobby",
         host: playerId,
-        potatoHolder: null
+        potatoHolder: null,
+        videoStartTime: null
       });
       isHost = true;
     } else {
@@ -649,7 +650,8 @@ createPrivateSubmit.addEventListener("click", async () => {
       players: [],
       state: "lobby",
       host: playerId,
-      potatoHolder: null
+      potatoHolder: null,
+      videoStartTime: null
     });
     isHost = true;
     await updateDoc(gameRef, {
@@ -704,10 +706,21 @@ startBtn.addEventListener("click", async () => {
   const randomHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
   await updateDoc(gameRef, {
     state: "playing",
-    potatoHolder: randomHolder
+    potatoHolder: randomHolder,
+    videoStartTime: Date.now()
   });
   setStatus("Game started!");
 });
+
+function syncVideo(videoStartTime) {
+  if (!videoStartTime) {
+    resetVideo();
+    return;
+  }
+  const elapsed = (Date.now() - videoStartTime) / 1000; // Convert to seconds
+  hotSongVideo.currentTime = elapsed;
+  hotSongVideo.play().catch(e => console.error("Video play failed:", e));
+}
 
 function listenForGameUpdates() {
   if (!gameId) return;
@@ -753,6 +766,8 @@ function listenForGameUpdates() {
       gameArea.style.display = "block";
       potatoHolder = game.potatoHolder;
 
+      syncVideo(game.videoStartTime);
+
       if (potatoHolder === playerId) {
         if (prevPotatoHolder !== potatoHolder) {
           showTriviaModal();
@@ -775,7 +790,6 @@ function listenForGameUpdates() {
       }
 
       if (isHost) {
-        hotSongVideo.play().catch(e => console.error("Video play failed:", e));
         hotSongVideo.onended = async () => {
           try {
             await runTransaction(db, async (transaction) => {
@@ -788,10 +802,14 @@ function listenForGameUpdates() {
                 ? game.players.map(p => p.id === game.potatoHolder ? { ...p, alive: false } : p)
                 : [];
               const alivePlayers = playersUpdated.filter(p => p.alive);
-              const updates = { players: playersUpdated };
+              const updates = { 
+                players: playersUpdated,
+                videoStartTime: Date.now()
+              };
 
               if (alivePlayers.length <= 1) {
                 updates.state = "ended";
+                updates.videoStartTime = null;
               } else {
                 updates.potatoHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
               }
@@ -803,8 +821,6 @@ function listenForGameUpdates() {
             setStatus("Error processing elimination.");
           }
         };
-      } else {
-        resetVideo();
       }
     } else if (game.state === "ended") {
       const me = game.players && game.players.find(p => p.id === playerId);
@@ -819,7 +835,8 @@ function listenForGameUpdates() {
             players: [],
             state: "lobby",
             host: null,
-            potatoHolder: null
+            potatoHolder: null,
+            videoStartTime: null
           });
           setStatus("Game room reset for new game.");
         } catch (e) {
@@ -920,8 +937,8 @@ async function leaveGame() {
   playerName = "";
   joined = false;
   joinBtn.style.display = "inline-block";
-  joinPrivateBtn.style.display = "inline-block";
-  createPrivateBtn.style.display = "inline-block";
+  joinPrivateBtn.style.display = "none";
+  createPrivateBtn.style.display = "none";
   leaveBtn.style.display = "none";
   setStartButton(false);
   gameArea.style.display = "none";
